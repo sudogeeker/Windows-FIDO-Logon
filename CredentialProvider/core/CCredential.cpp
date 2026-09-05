@@ -297,13 +297,12 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 		std::wstring brokerError;
 		if (!_broker.BeginAuthentication(sid, challenge, brokerError))
 		{
-			if (localfido::LocalCredentialStore::IsSidEnforced(sid))
-			{
-				SetStatus(UiText(UiTextId::MfaServiceUnavailable), query);
-				return E_ACCESSDENIED;
-			}
-			_mfaComplete = true;
-			return S_OK;
+			// The Broker is the authoritative policy and challenge endpoint. A
+			// transport or policy-read failure must never become password-only
+			// authentication, because a failed local registry read could otherwise
+			// be interpreted as "not enforced".
+			SetStatus(UiText(UiTextId::MfaServiceUnavailable), query);
+			return E_ACCESSDENIED;
 		}
 		if (!challenge.enforced)
 		{
