@@ -311,8 +311,8 @@ bool localfido::BrokerClient::FinishRemoval(const std::string& sessionId, const 
 	return Call({ {"op", "finish_remove"}, {"sessionId", sessionId}, {"assertion", AssertionToJson(authorization)} }, response, error);
 }
 
-bool localfido::BrokerClient::SetEnforcement(const std::wstring& sid, bool enabled, std::wstring& error)
+bool localfido::BrokerClient::SetEnforcement(const std::wstring& sid, bool enabled, std::wstring& error, bool allowFilterConflict)
 {
 	json response;
-	return Call({ {"op", "set_enforcement"}, {"sid", Convert::ToString(sid)}, {"enabled", enabled} }, response, error);
+	return Call({ {"op", "set_enforcement"}, {"sid", Convert::ToString(sid)}, {"enabled", enabled}, {"allowFilterConflict", allowFilterConflict} }, response, error);
 }

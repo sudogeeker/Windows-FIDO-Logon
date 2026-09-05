@@ -54,7 +54,7 @@ namespace localfido
 			AuthenticationChallenge& authorization,
 			std::wstring& error);
 		bool FinishRemoval(const std::string& sessionId, const FIDOSignResponse& authorization, std::wstring& error);
-		bool SetEnforcement(const std::wstring& sid, bool enabled, std::wstring& error);
+		bool SetEnforcement(const std::wstring& sid, bool enabled, std::wstring& error, bool allowFilterConflict = false);
 
 	private:
 		bool Call(const nlohmann::json& request, nlohmann::json& response, std::wstring& error);

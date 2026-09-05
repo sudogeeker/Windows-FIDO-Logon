@@ -116,7 +116,7 @@ namespace
 		for (const auto& account : vault.accounts)
 		{
 			if (account.sid.empty() || account.sid.size() > 184 || account.username.size() > 256 ||
-				account.credentials.size() > 64 || (account.enforced && account.credentials.size() < 2)) return false;
+				account.credentials.size() > 64 || (account.enforced && account.credentials.empty())) return false;
 			PSID parsedSid = nullptr;
 			const bool sidValid = ConvertStringSidToSidW(account.sid.c_str(), &parsedSid) && IsValidSid(parsedSid);
 			if (parsedSid) LocalFree(parsedSid);
@@ -467,7 +467,7 @@ bool localfido::LocalCredentialStore::RemoveCredential(const std::wstring& sid, 
 		if (error) *error = ERROR_NOT_FOUND;
 		return false;
 	}
-	if (account->enforced && account->credentials.size() <= 2)
+	if (account->enforced && account->credentials.size() <= 1)
 	{
 		if (error) *error = ERROR_ACCESS_DENIED;
 		return false;
@@ -481,7 +481,7 @@ bool localfido::LocalCredentialStore::SetEnforced(const std::wstring& sid, bool 
 	Vault vault;
 	if (!LoadOrCreate(vault, error)) return false;
 	const auto account = std::find_if(vault.accounts.begin(), vault.accounts.end(), [&](const AccountRecord& item) { return _wcsicmp(item.sid.c_str(), sid.c_str()) == 0; });
-	if (account == vault.accounts.end() || (enforced && account->credentials.size() < 2))
+	if (account == vault.accounts.end() || (enforced && account->credentials.empty()))
 	{
 		if (error) *error = ERROR_INVALID_STATE;
 		return false;

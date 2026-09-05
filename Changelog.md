@@ -5,7 +5,7 @@
 - Replaced the server-backed authentication client with a local FIDO core and Named Pipe Broker.
 - Removed HTTP, OTP, Push, polling, server challenge, realm/UPN, domain-account, and server offline-cache code.
 - Added per-machine RP identity, machine-DPAPI credential vault, replay-resistant 120-second ceremonies, ES256 verification, UP/UV checks, and signature-counter enforcement.
-- Added multiple-key management, proof-of-possession enrollment, two-key enforcement floor, and password plus existing-key authorization for changes.
+- Added multiple-key management, proof-of-possession enrollment, an at-least-one-key enforcement floor, and password plus existing-key authorization for changes.
 - Added new Credential Provider and Filter GUIDs, independent MSI UpgradeCode, and `HKLM\SOFTWARE\WindowsFidoLogon` configuration.
 - Pinned static libfido2 1.17.0 dependencies through vcpkg.
 - Added a hash-pinned local-only libfido2 overlay with Windows Hello, PC/SC, and NFC disabled, plus static-link/import auditing.

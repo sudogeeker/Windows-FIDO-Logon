@@ -9,8 +9,17 @@
     <MajorUpgrade Schedule="afterInstallExecute"
                   DowngradeErrorMessage="A newer Windows FIDO Logon version is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="ProductIcon.ico" SourceFile="$(var.SolutionDir)assets\key.ico" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
-    <Condition Message="Windows FIDO Logon requires 64-bit Windows 10 or Windows 11.">Installed OR VersionNT64 &gt;= 1000</Condition>
+    <!-- Windows Installer deliberately reports VersionNT/VersionNT64 as 603 on
+         Windows 10 for compatibility, so those properties cannot distinguish
+         Windows 10/11 from Windows 8.1. Read the real major version instead. -->
+    <Property Id="WINDOWSMAJORVERSION">
+      <RegistrySearch Id="WindowsMajorVersionSearch" Root="HKLM"
+                      Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+                      Name="CurrentMajorVersionNumber" Type="raw" Win64="yes" />
+    </Property>
+    <Condition Message="Windows FIDO Logon requires 64-bit Windows 10 or Windows 11.">Installed OR WINDOWSMAJORVERSION = &quot;#10&quot;</Condition>
     <Condition Message="Administrator privileges are required.">Privileged</Condition>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
@@ -27,7 +36,7 @@
           </Component>
           <Component Id="ManagerComponent" Guid="2967E080-0C31-4407-9EE8-1DF3389C8895" Win64="yes">
             <File Id="ManagerExe" Source="$(var.Manager.TargetPath)" KeyPath="yes">
-              <Shortcut Id="ManagerShortcut" Directory="ProgramMenuFolder" Name="Windows FIDO Logon" WorkingDirectory="INSTALLFOLDER" Advertise="yes" />
+              <Shortcut Id="ManagerShortcut" Directory="ProgramMenuFolder" Name="Windows FIDO Logon" WorkingDirectory="INSTALLFOLDER" Advertise="yes" Icon="ProductIcon.ico" IconIndex="0" />
             </File>
           </Component>
           <Component Id="ProviderComponent" Guid="F9523D56-52B1-43FD-922A-6D4030C9BDB3" Win64="yes">

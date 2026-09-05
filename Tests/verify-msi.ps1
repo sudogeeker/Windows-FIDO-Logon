@@ -24,9 +24,13 @@ try {
         'A95D1C6B-8D9C-4E0F-A60D-CA6B569E28AD',
         '54B25B17-C7AE-4C2B-B3C4-E3B29A73D9B1',
         'SafeBoot\Minimal',
-        'VersionNT64 &gt;= 1000'
+        'CurrentMajorVersionNumber',
+        'WINDOWSMAJORVERSION = "#10"'
     )) {
         if ($text -notmatch [regex]::Escape($required)) { throw "MSI contract is missing: $required" }
+    }
+    if ($text -match 'VersionNT64\s*&gt;=\s*1000') {
+        throw 'MSI contains the invalid Windows 10 version check (VersionNT64 >= 1000).'
     }
     if ($BuildDirectory) {
         [xml]$document = $text

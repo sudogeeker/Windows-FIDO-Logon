@@ -30,7 +30,12 @@ HRESULT CCredentialProviderFilter::Filter(CREDENTIAL_PROVIDER_USAGE_SCENARIO sce
 	Logger::Get().logDebug = registry.GetBool(L"debug_log");
 	if (!_filterEnabled) return S_OK;
 	for (DWORD index = 0; index < count; ++index)
-		allowed[index] = IsEqualGUID(providers[index], CLSID_WINDOWS_FIDO_LOGON) ? TRUE : FALSE;
+	{
+		// Filter decisions are shared with other registered filters. Only add a
+		// denial; never restore TRUE after another filter has denied a provider.
+		if (!IsEqualGUID(providers[index], CLSID_WINDOWS_FIDO_LOGON))
+			allowed[index] = FALSE;
+	}
 	return S_OK;
 }
 

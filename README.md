@@ -33,7 +33,7 @@ The script restores the pinned vcpkg graph, builds all projects with the static 
 
 GitHub Actions runs the same path for pushes and pull requests. A tag such as `v1.0.0` must match `versioning/version.h`, `vcpkg.json`, and `WiXSetup/Config.wxi`. Tagged releases publish the tested MSI and checksum without requiring a signing certificate; the workflow also creates a GitHub artifact provenance attestation. See [release process](doc/release.md).
 
-Current CI releases are not Authenticode-signed and Windows may show an unknown-publisher warning. Do not install them or enable enforced MFA on a real account until you have verified the checksum/provenance and the binaries pass the hardware and recovery tests in `doc/test-plan.md`. Enabling requires two separately registered USB keys. There is deliberately no password-only fallback, recovery code, or emergency administrator path.
+Current CI releases are not Authenticode-signed and Windows may show an unknown-publisher warning. Do not install them or enable enforced MFA on a real account until you have verified the checksum/provenance and the binaries pass the hardware and recovery tests in `doc/test-plan.md`. Enabling requires at least one registered USB key; the Manager shows an explicit lockout warning when only one key is present. There is deliberately no password-only fallback, recovery code, or emergency administrator path.
 
 ## Scope
 

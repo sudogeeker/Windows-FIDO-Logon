@@ -22,4 +22,4 @@ Each credential stores the owning SID, credential ID, exact COSE public key, alg
 
 The first key requires the current Windows password. Once a key exists, adding a key requires the password plus an assertion from an existing key. Every registration is followed by an assertion from the newly created credential before the Broker commits it, which makes `none` attestation safe without an online metadata service.
 
-Removal requires the password plus any current key. Enforced accounts cannot drop below two credentials. Enabling enforcement requires elevation and two registered keys; the Broker refuses to enable while another global Credential Provider Filter is registered.
+Removal requires the password plus any current key. Enforced accounts must retain at least one credential. Enabling enforcement requires elevation and one registered key; when only one key is registered, the Manager presents an explicit single-key warning. Windows-signed system Filters are recognized from their registered COM server and Authenticode publisher; an unknown third-party global Credential Provider Filter requires explicit administrator confirmation before enforcement is enabled.

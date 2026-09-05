@@ -12,12 +12,12 @@ Do not enable enforcement in production until all applicable items pass on the e
 
 ## Policy and hardware
 
-- Cover zero, one, two, and three credentials; same-device duplicate creation; enable at fewer than two; deletion at the two-key floor; account rename; account deletion; and Broker failure.
+- Cover zero, one, two, and three credentials; same-device duplicate creation; enable with zero (rejected) and one (warning plus confirmation); deletion at the one-key floor; account rename; account deletion; and Broker failure.
 - On Windows 10 and Windows 11 x64, test Logon, Unlock, Safe Mode, wrong-password retry, password expiry/change, wrong and locked PIN, cancel, key unplug/replug, and selection among multiple devices.
 - With two different vendor/model USB FIDO2 keys, complete: register both, enable MFA, log in with either, add a third using the remaining key, remove a lost key, restart, and unlock.
 
 ## Installer
 
 - Cover clean install, same-product upgrade, uninstall, service/provider/filter component failure, and coexistence with the old privacyIDEA product.
-- Confirm enforcement is off after install; another registered global Filter blocks enablement; uninstall removes Filter registration before its DLL and stops/removes the Broker.
+- Confirm enforcement is off after install; the Windows built-in GenericFilter does not block enablement; an unknown third-party global Filter blocks enablement; uninstall removes Filter registration before its DLL and stops/removes the Broker.
 - Confirm `credentials.dat`, backup, and product registry state are removed on uninstall according to the documented recovery procedure.

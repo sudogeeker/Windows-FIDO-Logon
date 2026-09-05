@@ -7,6 +7,7 @@
 
 #include <Windows.h>
 #include <shellapi.h>
+#include <algorithm>
 #include <cstdlib>
 #include <optional>
 #include <stdexcept>
@@ -23,6 +24,58 @@ namespace
 	constexpr int IDC_ENABLE = 104;
 	constexpr int IDC_DISABLE = 105;
 	constexpr int IDC_REFRESH = 106;
+	constexpr int IDI_APP_ICON = 101;
+	constexpr wchar_t kOurFilterGuid[] = L"{54B25B17-C7AE-4C2B-B3C4-E3B29A73D9B1}";
+	constexpr wchar_t kFilterRegistry[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Authentication\\Credential Provider Filters";
+
+	struct FilterConflict
+	{
+		std::wstring clsid;
+		std::wstring name;
+	};
+
+	std::optional<FilterConflict> FindConflictingFilter()
+	{
+		HKEY key = nullptr;
+		if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, kFilterRegistry, 0, KEY_READ | KEY_WOW64_64KEY, &key) != ERROR_SUCCESS)
+			return std::nullopt;
+		for (DWORD index = 0;; ++index)
+		{
+			wchar_t name[128]{};
+			DWORD length = ARRAYSIZE(name);
+			const LONG status = RegEnumKeyExW(key, index, name, &length, nullptr, nullptr, nullptr, nullptr);
+			if (status == ERROR_NO_MORE_ITEMS) break;
+			if (status != ERROR_SUCCESS) continue;
+			if (_wcsicmp(name, kOurFilterGuid) == 0) continue;
+			HKEY filter = nullptr;
+			std::wstring displayName = L"Unknown provider filter";
+			if (RegOpenKeyExW(key, name, 0, KEY_READ | KEY_WOW64_64KEY, &filter) == ERROR_SUCCESS)
+			{
+				wchar_t value[256]{};
+				DWORD bytes = sizeof(value);
+				DWORD type = 0;
+				if (RegQueryValueExW(filter, nullptr, nullptr, &type, reinterpret_cast<LPBYTE>(value), &bytes) == ERROR_SUCCESS &&
+					(type == REG_SZ || type == REG_EXPAND_SZ) && value[0] != L'\0')
+					displayName = value;
+				RegCloseKey(filter);
+			}
+			RegCloseKey(key);
+			return FilterConflict{ name, displayName };
+		}
+		RegCloseKey(key);
+		return std::nullopt;
+	}
+
+	int DpiFor(HWND window)
+	{
+		const auto function = reinterpret_cast<UINT(WINAPI*)(HWND)>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
+		return function && window ? static_cast<int>(function(window)) : 96;
+	}
+
+	int Scale(HWND window, int value)
+	{
+		return MulDiv(value, DpiFor(window), 96);
+	}
 
 	HMENU ControlId(int value)
 	{
@@ -164,11 +217,62 @@ namespace
 	{
 		HWND window = nullptr;
 		HWND list = nullptr;
+		HWND subtitle = nullptr;
+		HWND addButton = nullptr;
+		HWND testButton = nullptr;
+		HWND removeButton = nullptr;
+		HWND enableButton = nullptr;
+		HWND disableButton = nullptr;
+		HWND refreshButton = nullptr;
 		std::wstring username;
 		std::wstring sid;
 		localfido::AccountStatus status;
 		localfido::BrokerClient broker;
+		HFONT uiFont = nullptr;
+		HFONT titleFont = nullptr;
+		HICON logo = nullptr;
 	};
+
+	void SetControlFont(HWND control, HFONT font)
+	{
+		if (control && font) SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+	}
+
+	void LayoutMainWindow(AppState& app, int width, int height)
+	{
+		const int margin = Scale(app.window, 24);
+		const int headerHeight = Scale(app.window, 112);
+		const int gap = Scale(app.window, 12);
+		const int buttonHeight = Scale(app.window, 38);
+		const int listTop = headerHeight + Scale(app.window, 26);
+		const int listBottom = height - Scale(app.window, 92);
+		const int contentWidth = (width - margin * 2);
+		MoveWindow(app.list, margin, listTop, contentWidth, std::max(Scale(app.window, 100), listBottom - listTop), TRUE);
+
+		const int buttonTop = height - margin - buttonHeight;
+		const int buttonWidth = (contentWidth - gap * 2) / 3;
+		MoveWindow(app.addButton, margin, buttonTop, buttonWidth, buttonHeight, TRUE);
+		MoveWindow(app.testButton, margin + buttonWidth + gap, buttonTop, buttonWidth, buttonHeight, TRUE);
+		MoveWindow(app.removeButton, margin + (buttonWidth + gap) * 2, buttonTop, buttonWidth, buttonHeight, TRUE);
+		const int secondRowTop = buttonTop - gap - buttonHeight;
+		MoveWindow(app.enableButton, margin, secondRowTop, buttonWidth, buttonHeight, TRUE);
+		MoveWindow(app.disableButton, margin + buttonWidth + gap, secondRowTop, buttonWidth, buttonHeight, TRUE);
+		MoveWindow(app.refreshButton, margin + (buttonWidth + gap) * 2, secondRowTop, buttonWidth, buttonHeight, TRUE);
+		MoveWindow(app.subtitle, margin, headerHeight - Scale(app.window, 38), contentWidth, Scale(app.window, 24), TRUE);
+	}
+
+	void ApplyWindowFonts(AppState& app)
+	{
+		const int dpi = DpiFor(app.window);
+		if (app.uiFont) DeleteObject(app.uiFont);
+		if (app.titleFont) DeleteObject(app.titleFont);
+		app.uiFont = CreateFontW(-MulDiv(10, dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+			DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+		app.titleFont = CreateFontW(-MulDiv(18, dpi, 72), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+			DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+		for (HWND control : { app.list, app.subtitle, app.addButton, app.testButton, app.removeButton, app.enableButton, app.disableButton, app.refreshButton })
+			SetControlFont(control, app.uiFont);
+	}
 
 	bool Refresh(AppState& app)
 	{
@@ -180,9 +284,12 @@ namespace
 			std::wstring line = Convert::ToWString(item.label) + L"  [" + Convert::ToWString(item.aaguid) + L"]";
 			SendMessageW(app.list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(line.c_str()));
 		}
-		const std::wstring title = L"Windows FIDO Logon — " + app.username +
-			(app.status.enforced ? L" — MFA enforced" : L" — MFA not enforced");
-		SetWindowTextW(app.window, title.c_str());
+		const std::wstring summary = L"Signed in as " + app.username + L"  |  " +
+			std::to_wstring(app.status.credentials.size()) + (app.status.credentials.size() == 1 ? L" registered key" : L" registered keys") +
+			(app.status.enforced ? L"  |  MFA enabled" : L"  |  MFA disabled");
+		SetWindowTextW(app.subtitle, summary.c_str());
+		SetWindowTextW(app.window, L"Windows FIDO Logon");
+		InvalidateRect(app.window, nullptr, TRUE);
 		return true;
 	}
 
@@ -324,9 +431,35 @@ namespace
 
 	void ElevatePolicyChange(AppState& app, bool enabled)
 	{
+		if (enabled && app.status.credentials.empty())
+		{
+			Error(app.window, L"Register at least one security key before enabling MFA.");
+			return;
+		}
+		bool allowFilterConflict = false;
+		if (enabled && app.status.credentials.size() == 1)
+		{
+			const int answer = MessageBoxW(app.window,
+				L"Only one security key is registered. If it is lost or damaged, you may be locked out.\r\n\r\nDo you want to enable MFA anyway?",
+				L"Enable MFA with one key", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+			if (answer != IDYES) return;
+		}
+		if (enabled)
+		{
+			if (const auto conflict = FindConflictingFilter())
+			{
+				const std::wstring warning = L"Another Credential Provider Filter is registered:\r\n" + conflict->name +
+					L"\r\n" + conflict->clsid +
+					L"\r\n\r\nMultiple filters may hide sign-in tiles unexpectedly. Continue and enable MFA anyway?";
+				if (MessageBoxW(app.window, warning.c_str(), L"Credential Provider Filter conflict", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+					return;
+				allowFilterConflict = true;
+			}
+		}
 		wchar_t executable[MAX_PATH]{};
 		GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
-		const std::wstring parameters = L"--set-enforcement \"" + app.sid + L"\" " + (enabled ? L"1" : L"0");
+		const std::wstring parameters = L"--set-enforcement \"" + app.sid + L"\" " + (enabled ? L"1" : L"0") +
+			(allowFilterConflict ? L" 1" : L" 0");
 		if (reinterpret_cast<INT_PTR>(ShellExecuteW(app.window, L"runas", executable, parameters.c_str(), nullptr, SW_SHOWNORMAL)) <= 32)
 			Error(app.window, L"Administrator elevation was cancelled or failed.");
 	}
@@ -343,17 +476,85 @@ namespace
 		switch (message)
 		{
 		case WM_CREATE:
-			CreateWindowW(L"STATIC", L"Registered USB FIDO2 security keys", WS_CHILD | WS_VISIBLE, 16, 16, 430, 24, window, nullptr, nullptr, nullptr);
-			app->list = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | LBS_NOTIFY,
-				16, 44, 548, 220, window, ControlId(IDC_KEYS), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Add key", WS_CHILD | WS_VISIBLE, 16, 280, 88, 30, window, ControlId(IDC_ADD_KEY), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Test key", WS_CHILD | WS_VISIBLE, 112, 280, 88, 30, window, ControlId(IDC_TEST_KEY), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Remove", WS_CHILD | WS_VISIBLE, 208, 280, 88, 30, window, ControlId(IDC_REMOVE_KEY), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Enable MFA", WS_CHILD | WS_VISIBLE, 304, 280, 96, 30, window, ControlId(IDC_ENABLE), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Disable MFA", WS_CHILD | WS_VISIBLE, 408, 280, 96, 30, window, ControlId(IDC_DISABLE), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Refresh", WS_CHILD | WS_VISIBLE, 512, 280, 70, 30, window, ControlId(IDC_REFRESH), nullptr, nullptr);
+		{
+			app->subtitle = CreateWindowW(L"STATIC", L"Loading account status...", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window, nullptr, nullptr, nullptr);
+			app->list = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
+				0, 0, 0, 0, window, ControlId(IDC_KEYS), nullptr, nullptr);
+			app->addButton = CreateWindowW(L"BUTTON", L"Add key", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_NOTIFY, 0, 0, 0, 0, window, ControlId(IDC_ADD_KEY), nullptr, nullptr);
+			app->testButton = CreateWindowW(L"BUTTON", L"Test key", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_NOTIFY, 0, 0, 0, 0, window, ControlId(IDC_TEST_KEY), nullptr, nullptr);
+			app->removeButton = CreateWindowW(L"BUTTON", L"Remove", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_NOTIFY, 0, 0, 0, 0, window, ControlId(IDC_REMOVE_KEY), nullptr, nullptr);
+			app->enableButton = CreateWindowW(L"BUTTON", L"Enable MFA", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_NOTIFY, 0, 0, 0, 0, window, ControlId(IDC_ENABLE), nullptr, nullptr);
+			app->disableButton = CreateWindowW(L"BUTTON", L"Disable MFA", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_NOTIFY, 0, 0, 0, 0, window, ControlId(IDC_DISABLE), nullptr, nullptr);
+			app->refreshButton = CreateWindowW(L"BUTTON", L"Refresh", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_NOTIFY, 0, 0, 0, 0, window, ControlId(IDC_REFRESH), nullptr, nullptr);
+			app->logo = LoadIconW(reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(window, GWLP_HINSTANCE)), MAKEINTRESOURCEW(IDI_APP_ICON));
+			ApplyWindowFonts(*app);
+			RECT client{};
+			GetClientRect(window, &client);
+			LayoutMainWindow(*app, client.right, client.bottom);
 			Refresh(*app);
 			return 0;
+		}
+		case WM_GETMINMAXINFO:
+		{
+			auto info = reinterpret_cast<MINMAXINFO*>(lParam);
+			info->ptMinTrackSize.x = Scale(window, 680);
+			info->ptMinTrackSize.y = Scale(window, 430);
+			return 0;
+		}
+		case WM_SIZE:
+		{
+			RECT client{};
+			GetClientRect(window, &client);
+			LayoutMainWindow(*app, client.right, client.bottom);
+			InvalidateRect(window, nullptr, TRUE);
+			return 0;
+		}
+		case WM_DPICHANGED:
+		{
+			const auto suggested = reinterpret_cast<const RECT*>(lParam);
+			SetWindowPos(window, nullptr, suggested->left, suggested->top,
+				suggested->right - suggested->left, suggested->bottom - suggested->top,
+				SWP_NOZORDER | SWP_NOACTIVATE);
+			ApplyWindowFonts(*app);
+			return 0;
+		}
+		case WM_ERASEBKGND: return 1;
+		case WM_PAINT:
+		{
+			PAINTSTRUCT paint{};
+			HDC dc = BeginPaint(window, &paint);
+			RECT client{};
+			GetClientRect(window, &client);
+			HBRUSH background = CreateSolidBrush(RGB(247, 249, 252));
+			FillRect(dc, &client, background);
+			DeleteObject(background);
+			RECT header{ 0, 0, client.right, Scale(window, 112) };
+			HBRUSH headerBrush = CreateSolidBrush(RGB(20, 45, 78));
+			FillRect(dc, &header, headerBrush);
+			DeleteObject(headerBrush);
+			SetBkMode(dc, TRANSPARENT);
+			SetTextColor(dc, RGB(255, 255, 255));
+			HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(dc, app->titleFont));
+			RECT titleRect{ Scale(window, 86), Scale(window, 22), client.right - Scale(window, 24), Scale(window, 58) };
+			DrawTextW(dc, L"Windows FIDO Logon", -1, &titleRect, DT_SINGLELINE | DT_VCENTER);
+			SelectObject(dc, oldFont);
+			SetTextColor(dc, RGB(189, 212, 239));
+			RECT hintRect{ Scale(window, 86), Scale(window, 62), client.right - Scale(window, 24), Scale(window, 94) };
+			DrawTextW(dc, L"Password plus a USB security key, protected locally", -1, &hintRect, DT_SINGLELINE | DT_VCENTER);
+			if (app->logo)
+				DrawIconEx(dc, Scale(window, 24), Scale(window, 24), app->logo, Scale(window, 48), Scale(window, 48), 0, nullptr, DI_NORMAL);
+			EndPaint(window, &paint);
+			return 0;
+		}
+		case WM_CTLCOLORSTATIC:
+			SetBkMode(reinterpret_cast<HDC>(wParam), TRANSPARENT);
+			SetTextColor(reinterpret_cast<HDC>(wParam), reinterpret_cast<HWND>(lParam) == app->subtitle ? RGB(189, 212, 239) : RGB(74, 85, 104));
+			return reinterpret_cast<LRESULT>(GetStockObject(NULL_BRUSH));
+		case WM_DESTROY:
+			if (app->uiFont) DeleteObject(app->uiFont);
+			if (app->titleFont) DeleteObject(app->titleFont);
+			if (app->logo) DestroyIcon(app->logo);
+			PostQuitMessage(0); return 0;
 		case WM_COMMAND:
 			switch (LOWORD(wParam))
 			{
@@ -365,7 +566,6 @@ namespace
 			case IDC_REFRESH: Refresh(*app); break;
 			}
 			return 0;
-		case WM_DESTROY: PostQuitMessage(0); return 0;
 		}
 		return DefWindowProcW(window, message, wParam, lParam);
 	}
@@ -375,11 +575,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
 {
 	int argc = 0;
 	LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-	if (argc == 4 && _wcsicmp(argv[1], L"--set-enforcement") == 0)
+	if (argc >= 4 && argc <= 5 && _wcsicmp(argv[1], L"--set-enforcement") == 0)
 	{
 		localfido::BrokerClient broker;
 		std::wstring error;
-		const bool ok = broker.SetEnforcement(argv[2], wcstol(argv[3], nullptr, 10) != 0, error);
+		const bool allowFilterConflict = argc == 5 && wcstol(argv[4], nullptr, 10) != 0;
+		const bool ok = broker.SetEnforcement(argv[2], wcstol(argv[3], nullptr, 10) != 0, error, allowFilterConflict);
 		LocalFree(argv);
 		MessageBoxW(nullptr, ok ? L"MFA policy was updated." : error.c_str(), L"Windows FIDO Logon", ok ? MB_ICONINFORMATION : MB_ICONERROR);
 		return ok ? 0 : 1;
@@ -393,15 +594,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
 		Error(nullptr, L"Unable to identify the current Windows account.");
 		return 1;
 	}
+	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 	WNDCLASSW cls{};
 	cls.lpfnWndProc = MainWindow;
 	cls.hInstance = instance;
 	cls.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-	cls.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+	cls.hbrBackground = nullptr;
+	cls.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_APP_ICON));
 	cls.lpszClassName = L"WindowsFidoLogonManager";
 	if (!RegisterClassW(&cls)) return 1;
-	HWND window = CreateWindowW(cls.lpszClassName, L"Windows FIDO Logon", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-		CW_USEDEFAULT, CW_USEDEFAULT, 610, 365, nullptr, nullptr, instance, &app);
+	HWND window = CreateWindowExW(WS_EX_APPWINDOW, cls.lpszClassName, L"Windows FIDO Logon", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME,
+		CW_USEDEFAULT, CW_USEDEFAULT, 760, 540, nullptr, nullptr, instance, &app);
 	if (!window) return 1;
 	ShowWindow(window, show);
 	UpdateWindow(window);
