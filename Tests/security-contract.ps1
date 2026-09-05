@@ -62,6 +62,12 @@ foreach ($required in @('GetNamedPipeServerProcessId', 'WinLocalSystemSid')) {
     if ($client -notmatch $required) { throw "Broker client trust contract missing: $required" }
 }
 
+$verifier = Get-Content -LiteralPath (Join-Path $root 'CppClient\CppClient\FidoVerifier.cpp') -Raw
+foreach ($required in @('fido_assert_set_count(assertionHandle, 1)', 'fido_assert_set_authdata_raw')) {
+    if ($verifier -notmatch [regex]::Escape($required)) { throw "libfido2 1.17 assertion API contract missing: $required" }
+}
+if ($verifier -match '\bfido_assert_set_id\s*\(') { throw 'Non-public libfido2 API fido_assert_set_id must not be used' }
+
 $workflow = Get-Content -LiteralPath (Join-Path $root '.github\workflows\build-release.yml') -Raw
 $actionUses = [regex]::Matches($workflow, '(?m)^\s*uses:\s*[^@\s]+@([^\s#]+)')
 if ($actionUses.Count -eq 0) { throw 'No GitHub Actions dependencies were found' }

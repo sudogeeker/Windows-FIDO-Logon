@@ -242,8 +242,8 @@ bool localfido::FidoVerifier::VerifyAssertion(
 	}
 	int result = fido_assert_set_clientdata(assertionHandle, clientData.data(), clientData.size());
 	if (result == FIDO_OK) result = fido_assert_set_rp(assertionHandle, expectedRpId.c_str());
-	if (result == FIDO_OK) result = fido_assert_set_id(assertionHandle, 0, credentialId.data(), credentialId.size());
-	if (result == FIDO_OK) result = fido_assert_set_authdata(assertionHandle, 0, authData.data(), authData.size());
+	if (result == FIDO_OK) result = fido_assert_set_count(assertionHandle, 1);
+	if (result == FIDO_OK) result = fido_assert_set_authdata_raw(assertionHandle, 0, authData.data(), authData.size());
 	if (result == FIDO_OK) result = fido_assert_set_sig(assertionHandle, 0, signature.data(), signature.size());
 	if (result == FIDO_OK) result = fido_assert_set_up(assertionHandle, FIDO_OPT_TRUE);
 	if (result == FIDO_OK) result = fido_assert_set_uv(assertionHandle, FIDO_OPT_TRUE);
