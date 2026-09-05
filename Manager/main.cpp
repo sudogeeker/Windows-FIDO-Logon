@@ -231,7 +231,16 @@ namespace
 		HFONT uiFont = nullptr;
 		HFONT titleFont = nullptr;
 		HICON logo = nullptr;
+		bool busy = false;
 	};
+
+	void SetBusy(AppState& app, bool busy)
+	{
+		app.busy = busy;
+		for (HWND control : { app.addButton, app.testButton, app.removeButton, app.enableButton, app.disableButton, app.refreshButton })
+			if (control) EnableWindow(control, busy ? FALSE : TRUE);
+		SetCursor(LoadCursorW(nullptr, busy ? IDC_WAIT : IDC_ARROW));
+	}
 
 	void SetControlFont(HWND control, HFONT font)
 	{
@@ -241,7 +250,7 @@ namespace
 	void LayoutMainWindow(AppState& app, int width, int height)
 	{
 		const int margin = Scale(app.window, 24);
-		const int headerHeight = Scale(app.window, 112);
+		const int headerHeight = Scale(app.window, 136);
 		const int gap = Scale(app.window, 12);
 		const int buttonHeight = Scale(app.window, 38);
 		const int listTop = headerHeight + Scale(app.window, 26);
@@ -258,7 +267,7 @@ namespace
 		MoveWindow(app.enableButton, margin, secondRowTop, buttonWidth, buttonHeight, TRUE);
 		MoveWindow(app.disableButton, margin + buttonWidth + gap, secondRowTop, buttonWidth, buttonHeight, TRUE);
 		MoveWindow(app.refreshButton, margin + (buttonWidth + gap) * 2, secondRowTop, buttonWidth, buttonHeight, TRUE);
-		MoveWindow(app.subtitle, margin, headerHeight - Scale(app.window, 38), contentWidth, Scale(app.window, 24), TRUE);
+		MoveWindow(app.subtitle, margin, headerHeight - Scale(app.window, 30), contentWidth, Scale(app.window, 22), TRUE);
 	}
 
 	void ApplyWindowFonts(AppState& app)
@@ -528,18 +537,18 @@ namespace
 			HBRUSH background = CreateSolidBrush(RGB(247, 249, 252));
 			FillRect(dc, &client, background);
 			DeleteObject(background);
-			RECT header{ 0, 0, client.right, Scale(window, 112) };
+			RECT header{ 0, 0, client.right, Scale(window, 136) };
 			HBRUSH headerBrush = CreateSolidBrush(RGB(20, 45, 78));
 			FillRect(dc, &header, headerBrush);
 			DeleteObject(headerBrush);
 			SetBkMode(dc, TRANSPARENT);
 			SetTextColor(dc, RGB(255, 255, 255));
 			HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(dc, app->titleFont));
-			RECT titleRect{ Scale(window, 86), Scale(window, 22), client.right - Scale(window, 24), Scale(window, 58) };
+			RECT titleRect{ Scale(window, 86), Scale(window, 18), client.right - Scale(window, 24), Scale(window, 52) };
 			DrawTextW(dc, L"Windows FIDO Logon", -1, &titleRect, DT_SINGLELINE | DT_VCENTER);
 			SelectObject(dc, oldFont);
 			SetTextColor(dc, RGB(189, 212, 239));
-			RECT hintRect{ Scale(window, 86), Scale(window, 62), client.right - Scale(window, 24), Scale(window, 94) };
+			RECT hintRect{ Scale(window, 86), Scale(window, 54), client.right - Scale(window, 24), Scale(window, 82) };
 			DrawTextW(dc, L"Password plus a USB security key, protected locally", -1, &hintRect, DT_SINGLELINE | DT_VCENTER);
 			if (app->logo)
 				DrawIconEx(dc, Scale(window, 24), Scale(window, 24), app->logo, Scale(window, 48), Scale(window, 48), 0, nullptr, DI_NORMAL);
@@ -556,14 +565,16 @@ namespace
 			if (app->logo) DestroyIcon(app->logo);
 			PostQuitMessage(0); return 0;
 		case WM_COMMAND:
+			if (HIWORD(wParam) != 0 && HIWORD(wParam) != BN_CLICKED) return 0;
+			if (app->busy) return 0;
 			switch (LOWORD(wParam))
 			{
-			case IDC_ADD_KEY: AddKey(*app); break;
-			case IDC_TEST_KEY: TestKey(*app); break;
-			case IDC_REMOVE_KEY: RemoveKey(*app); break;
-			case IDC_ENABLE: ElevatePolicyChange(*app, true); break;
-			case IDC_DISABLE: ElevatePolicyChange(*app, false); break;
-			case IDC_REFRESH: Refresh(*app); break;
+			case IDC_ADD_KEY: SetBusy(*app, true); AddKey(*app); SetBusy(*app, false); break;
+			case IDC_TEST_KEY: SetBusy(*app, true); TestKey(*app); SetBusy(*app, false); break;
+			case IDC_REMOVE_KEY: SetBusy(*app, true); RemoveKey(*app); SetBusy(*app, false); break;
+			case IDC_ENABLE: SetBusy(*app, true); ElevatePolicyChange(*app, true); SetBusy(*app, false); break;
+			case IDC_DISABLE: SetBusy(*app, true); ElevatePolicyChange(*app, false); SetBusy(*app, false); break;
+			case IDC_REFRESH: SetBusy(*app, true); Refresh(*app); SetBusy(*app, false); break;
 			}
 			return 0;
 		}

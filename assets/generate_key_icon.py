@@ -8,8 +8,8 @@ from pathlib import Path
 
 
 NAVY = (11, 31, 58, 255)
-BLUE = (86, 180, 255, 255)
-WHITE = (247, 249, 252, 255)
+BLUE = (120, 174, 245, 255)
+WHITE = (220, 233, 250, 255)
 YELLOW = (255, 209, 102, 255)
 
 
@@ -135,15 +135,26 @@ def render(target: int) -> bytes:
                         sums[channel] += buf[index + channel]
             index = (y * target + x) * 4
             output[index:index + 4] = bytes(value // (scale * scale) for value in sums)
-    rows = b"".join(b"\x00" + output[y * target * 4:(y + 1) * target * 4] for y in range(target))
-    def chunk(kind: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", target, target, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b"")
+    return bytes(output)
+
+
+def dib_icon(rgba: bytes, size: int) -> bytes:
+    """Build a conventional uncompressed 32-bit ICO image with alpha."""
+    pixels = bytearray()
+    for y in range(size - 1, -1, -1):
+        for x in range(size):
+            r, g, b, a = rgba[(y * size + x) * 4:(y * size + x + 1) * 4]
+            pixels += bytes((b, g, r, a))
+    mask_row = (size + 31) // 32 * 4
+    mask = b"\x00" * (mask_row * size)
+    header = struct.pack("<IIIHHIIIIII", 40, size, size * 2, 1, 32, 0,
+        len(pixels) + len(mask), 0, 0, 0, 0)
+    return header + pixels + mask
 
 
 def main() -> None:
     sizes = [16, 24, 32, 48, 64, 128, 256]
-    images = [render(size) for size in sizes]
+    images = [dib_icon(render(size), size) for size in sizes]
     output = bytearray(struct.pack("<HHH", 0, 1, len(sizes)))
     offset = 6 + len(sizes) * 16
     for size, image in zip(sizes, images):
