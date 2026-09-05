@@ -330,8 +330,20 @@ bool localfido::BrokerClient::RemoveCredentialWithPassword(
 	return ok;
 }
 
-bool localfido::BrokerClient::SetEnforcement(const std::wstring& sid, bool enabled, std::wstring& error, bool allowFilterConflict)
+bool localfido::BrokerClient::SetEnforcement(
+	const std::wstring& sid,
+	const std::wstring& username,
+	const std::wstring& password,
+	bool enabled,
+	std::wstring& error,
+	bool allowFilterConflict)
 {
 	json response;
-	return Call({ {"op", "set_enforcement"}, {"sid", Convert::ToString(sid)}, {"enabled", enabled}, {"allowFilterConflict", allowFilterConflict} }, response, error);
+	json request = {
+		{"op", "set_enforcement"}, {"sid", Convert::ToString(sid)}, {"username", Convert::ToString(username)},
+		{"password", Convert::ToString(password)}, {"enabled", enabled}, {"allowFilterConflict", allowFilterConflict}
+	};
+	const bool ok = Call(request, response, error);
+	ClearJsonSecret(request, "password");
+	return ok;
 }

@@ -180,12 +180,12 @@ bool localfido::LocalCredentialStore::EnsureStoreDirectory(DWORD* error)
 	}
 	PSECURITY_DESCRIPTOR descriptor = nullptr;
 	if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-		L"D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)", SDDL_REVISION_1, &descriptor, nullptr))
+		L"O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FR;;;BA)", SDDL_REVISION_1, &descriptor, nullptr))
 	{
 		if (error) *error = GetLastError();
 		return false;
 	}
-	const BOOL secured = SetFileSecurityW(directory.c_str(),
+	const BOOL secured = SetFileSecurityW(directory.c_str(), OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION |
 		DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, descriptor);
 	const DWORD securityError = secured ? ERROR_SUCCESS : GetLastError();
 	LocalFree(descriptor);
@@ -251,7 +251,7 @@ bool localfido::LocalCredentialStore::WriteProtectedFile(const std::wstring& pat
 
 	PSECURITY_DESCRIPTOR descriptor = nullptr;
 	if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-		L"D:P(A;;FA;;;SY)(A;;FA;;;BA)", SDDL_REVISION_1, &descriptor, nullptr))
+		L"O:SYG:SYD:P(A;;FA;;;SY)(A;;FR;;;BA)", SDDL_REVISION_1, &descriptor, nullptr))
 	{
 		if (error) *error = GetLastError();
 		SecureZeroMemory(output.pbData, output.cbData);

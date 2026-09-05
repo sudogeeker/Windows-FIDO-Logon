@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Apache-2.0. Installs only local Windows FIDO Logon components. -->
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <?include Config.wxi?>
   <Product Id="*" Name="$(var.ProductName)" Manufacturer="$(var.Publisher)" Language="1033"
            Version="$(var.Version)" UpgradeCode="842EA4D9-6E63-4D18-9217-A4DBD1ED8728">
@@ -11,6 +12,7 @@
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="ProductIcon.ico" SourceFile="$(var.SolutionDir)assets\key.ico" />
     <Property Id="ARPPRODUCTICON" Value="ProductIcon.ico" />
+    <Property Id="ARPNOREPAIR" Value="1" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
     <!-- Windows Installer deliberately reports VersionNT/VersionNT64 as 603 on
          Windows 10 for compatibility, so those properties cannot distinguish
@@ -20,47 +22,103 @@
                       Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
                       Name="CurrentMajorVersionNumber" Type="raw" Win64="yes" />
     </Property>
+    <Property Id="MFAFILTERENABLED" Secure="yes">
+      <RegistrySearch Id="MfaFilterEnabledSearch" Root="HKLM"
+                      Key="SOFTWARE\WindowsFidoLogon" Name="enable_filter"
+                      Type="raw" Win64="yes" />
+    </Property>
     <Condition Message="Windows FIDO Logon requires 64-bit Windows 10 or Windows 11.">Installed OR WINDOWSMAJORVERSION = &quot;#10&quot;</Condition>
     <Condition Message="Administrator privileges are required.">Privileged</Condition>
+    <Condition Message="MFA is enabled. Open Windows FIDO Logon Manager, disable MFA with the current Windows password, and then uninstall again.">
+      NOT (Installed AND REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND MFAFILTERENABLED = &quot;#1&quot;)
+    </Condition>
+    <CustomAction Id="BlockMfaEnabledUninstall"
+                  Error="MFA is enabled. Open Windows FIDO Logon Manager, disable MFA with the current Windows password, and then uninstall again." />
+    <InstallExecuteSequence>
+      <Custom Action="BlockMfaEnabledUninstall" Before="InstallValidate">
+        Installed AND REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND MFAFILTERENABLED = &quot;#1&quot;
+      </Custom>
+    </InstallExecuteSequence>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="Windows FIDO Logon">
           <Component Id="BrokerComponent" Guid="DC81B315-01A4-49B7-9892-6760DD2D713B" Win64="yes">
-            <File Id="BrokerExe" Source="$(var.BrokerService.TargetPath)" KeyPath="yes" />
+            <CreateFolder>
+              <PermissionEx Sddl="O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FRFX;;;BA)(A;OICI;FRFX;;;BU)" />
+            </CreateFolder>
+            <File Id="BrokerExe" Source="$(var.BrokerService.TargetPath)" KeyPath="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;;FA;;;SY)(A;;FRFX;;;BA)(A;;FRFX;;;BU)" />
+            </File>
             <ServiceInstall Id="BrokerServiceInstall" Name="WindowsFidoLogonBroker" DisplayName="Windows FIDO Logon Broker"
                             Description="Local named-pipe FIDO MFA verification broker" Type="ownProcess" Start="auto"
-                            ErrorControl="normal" Account="LocalSystem" Vital="yes" />
+                            ErrorControl="normal" Account="LocalSystem" Vital="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;;GA;;;SY)(A;;CCLCSWRPLOCRRC;;;BA)(A;;CCLCSWLOCRRC;;;BU)" />
+              <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart"
+                                  ThirdFailureActionType="restart" ResetPeriodInDays="1"
+                                  RestartServiceDelayInSeconds="1" />
+            </ServiceInstall>
             <ServiceControl Id="BrokerServiceControl" Name="WindowsFidoLogonBroker" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
-            <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal\WindowsFidoLogonBroker" Type="string" Value="Service" />
-            <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\SafeBoot\Network\WindowsFidoLogonBroker" Type="string" Value="Service" />
+            <RegistryKey Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal\WindowsFidoLogonBroker"
+                         ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;;KA;;;SY)(A;;KR;;;BA)(A;;KR;;;BU)" />
+              <RegistryValue Type="string" Value="Service" />
+            </RegistryKey>
+            <RegistryKey Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\SafeBoot\Network\WindowsFidoLogonBroker"
+                         ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;;KA;;;SY)(A;;KR;;;BA)(A;;KR;;;BU)" />
+              <RegistryValue Type="string" Value="Service" />
+            </RegistryKey>
           </Component>
           <Component Id="ManagerComponent" Guid="2967E080-0C31-4407-9EE8-1DF3389C8895" Win64="yes">
             <File Id="ManagerExe" Source="$(var.Manager.TargetPath)" KeyPath="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;;FA;;;SY)(A;;FRFX;;;BA)(A;;FRFX;;;BU)" />
               <Shortcut Id="ManagerShortcut" Directory="ProgramMenuFolder" Name="Windows FIDO Logon" WorkingDirectory="INSTALLFOLDER" Advertise="yes" Icon="ProductIcon.ico" IconIndex="0" />
             </File>
           </Component>
           <Component Id="ProviderComponent" Guid="F9523D56-52B1-43FD-922A-6D4030C9BDB3" Win64="yes">
-            <File Id="CredentialProvider" Source="$(var.CredentialProvider.TargetPath)" KeyPath="yes" />
-            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderRegistryGUID)}" Type="string" Value="Windows FIDO Logon Credential Provider" />
-            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderRegistryGUID)}\InprocServer32" Type="string" Value="[#CredentialProvider]" />
-            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderRegistryGUID)}\InprocServer32" Name="ThreadingModel" Type="string" Value="Apartment" />
-            <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{$(var.ProviderRegistryGUID)}" Type="string" Value="Windows FIDO Logon" />
-            <RemoveRegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{$(var.ProviderRegistryGUID)}" Action="removeOnUninstall" />
+            <File Id="CredentialProvider" Source="$(var.CredentialProvider.TargetPath)" KeyPath="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;;FA;;;SY)(A;;FRFX;;;BA)(A;;FRFX;;;BU)" />
+            </File>
+            <RegistryKey Root="HKCR" Key="CLSID\{$(var.ProviderRegistryGUID)}"
+                         ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;CI;KA;;;SY)(A;CI;KR;;;BA)(A;CI;KR;;;BU)" />
+              <RegistryValue Type="string" Value="Windows FIDO Logon Credential Provider" />
+              <RegistryKey Key="InprocServer32">
+                <RegistryValue Type="string" Value="[#CredentialProvider]" />
+                <RegistryValue Name="ThreadingModel" Type="string" Value="Apartment" />
+              </RegistryKey>
+            </RegistryKey>
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{$(var.ProviderRegistryGUID)}"
+                         ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;;KA;;;SY)(A;;KR;;;BA)(A;;KR;;;BU)" />
+              <RegistryValue Type="string" Value="Windows FIDO Logon" />
+            </RegistryKey>
           </Component>
           <Component Id="FilterComponent" Guid="B7237283-AB10-4B1B-A419-5DA5052E9951" Win64="yes">
-            <File Id="CredentialProviderFilter" Source="$(var.CredentialProviderFilter.TargetPath)" KeyPath="yes" />
-            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderFilterRegistryGUID)}" Type="string" Value="Windows FIDO Logon Credential Provider Filter" />
-            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderFilterRegistryGUID)}\InprocServer32" Type="string" Value="[#CredentialProviderFilter]" />
-            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderFilterRegistryGUID)}\InprocServer32" Name="ThreadingModel" Type="string" Value="Apartment" />
-            <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{$(var.ProviderFilterRegistryGUID)}" Type="string" Value="Windows FIDO Logon" />
-            <RemoveRegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{$(var.ProviderFilterRegistryGUID)}" Action="removeOnUninstall" />
+            <File Id="CredentialProviderFilter" Source="$(var.CredentialProviderFilter.TargetPath)" KeyPath="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;;FA;;;SY)(A;;FRFX;;;BA)(A;;FRFX;;;BU)" />
+            </File>
+            <RegistryKey Root="HKCR" Key="CLSID\{$(var.ProviderFilterRegistryGUID)}"
+                         ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;CI;KA;;;SY)(A;CI;KR;;;BA)(A;CI;KR;;;BU)" />
+              <RegistryValue Type="string" Value="Windows FIDO Logon Credential Provider Filter" />
+              <RegistryKey Key="InprocServer32">
+                <RegistryValue Type="string" Value="[#CredentialProviderFilter]" />
+                <RegistryValue Name="ThreadingModel" Type="string" Value="Apartment" />
+              </RegistryKey>
+            </RegistryKey>
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{$(var.ProviderFilterRegistryGUID)}"
+                         ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;;KA;;;SY)(A;;KR;;;BA)(A;;KR;;;BU)" />
+              <RegistryValue Type="string" Value="Windows FIDO Logon" />
+            </RegistryKey>
           </Component>
           <Component Id="DocumentationComponent" Guid="390EC0B1-3341-473B-8DE7-ED1D673129BB" Win64="yes">
-            <File Id="ReadmeFile" Source="$(var.SolutionDir)README.md" KeyPath="yes" />
-            <File Id="LicenseFile" Source="$(var.SolutionDir)LICENSE" />
-            <File Id="NoticeFile" Source="$(var.SolutionDir)NOTICE.md" />
-            <File Id="ThirdPartyNoticesFile" Source="$(var.SolutionDir)THIRD_PARTY_NOTICES.md" />
+            <File Id="ReadmeFile" Source="$(var.SolutionDir)README.md" KeyPath="yes"><PermissionEx Sddl="O:SYG:SYD:P(A;;FA;;;SY)(A;;FRFX;;;BA)(A;;FRFX;;;BU)" /></File>
+            <File Id="LicenseFile" Source="$(var.SolutionDir)LICENSE"><PermissionEx Sddl="O:SYG:SYD:P(A;;FA;;;SY)(A;;FRFX;;;BA)(A;;FRFX;;;BU)" /></File>
+            <File Id="NoticeFile" Source="$(var.SolutionDir)NOTICE.md"><PermissionEx Sddl="O:SYG:SYD:P(A;;FA;;;SY)(A;;FRFX;;;BA)(A;;FRFX;;;BU)" /></File>
+            <File Id="ThirdPartyNoticesFile" Source="$(var.SolutionDir)THIRD_PARTY_NOTICES.md"><PermissionEx Sddl="O:SYG:SYD:P(A;;FA;;;SY)(A;;FRFX;;;BA)(A;;FRFX;;;BU)" /></File>
           </Component>
         </Directory>
       </Directory>
@@ -68,10 +126,12 @@
         <Directory Id="DataFolder" Name="Windows FIDO Logon">
           <Component Id="DataComponent" Guid="4BD2087B-0355-481A-A8A6-6B9284B1969A" Win64="yes" NeverOverwrite="yes">
             <CreateFolder>
-              <Permission User="SYSTEM" GenericAll="yes" />
-              <Permission User="Administrators" GenericAll="yes" />
+              <PermissionEx Sddl="O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FR;;;BA)" />
             </CreateFolder>
-            <RegistryValue Root="HKLM" Key="SOFTWARE\WindowsFidoLogon" Name="enable_filter" Type="integer" Value="0" KeyPath="yes" />
+            <RegistryKey Root="HKLM" Key="SOFTWARE\WindowsFidoLogon" ForceCreateOnInstall="yes">
+              <PermissionEx Sddl="O:SYG:SYD:P(A;;KA;;;SY)(A;;KR;;;BA)(A;;KR;;;BU)" />
+              <RegistryValue Name="enable_filter" Type="integer" Value="0" KeyPath="yes" />
+            </RegistryKey>
             <RemoveFile Id="RemoveVault" Name="credentials.dat" On="uninstall" />
             <RemoveFile Id="RemoveVaultBackup" Name="credentials.dat.bak" On="uninstall" />
             <RemoveFile Id="RemoveVaultTemporary" Name="credentials.dat.tmp" On="uninstall" />

@@ -2,6 +2,8 @@
 
 ## 1.0.1
 
+- Require the current Windows password for both MFA enablement and disablement, reject normal uninstall while MFA is active, harden installed component ACLs, and restart the Broker after service failure.
+- Batch Manager control repositioning and invalidate all child controls to prevent lower-button paint artifacts while resizing vertically.
 - Run Manager broker and USB operations in the background, reject duplicate button notifications, and bound Broker I/O waits.
 - Apply MFA policy in the elevated Manager without launching a second process; refresh status on completion.
 - Remove runtime WinTrust validation and recognize the Windows GenericFilter by its CLSID and system COM server path.

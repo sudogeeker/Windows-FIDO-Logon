@@ -701,6 +701,18 @@ bool BrokerService::Handle(const Caller& caller, json& request, json& response)
 	{
 		if (!caller.isElevatedAdmin) throw std::runtime_error("administrator elevation is required");
 		const std::wstring sid = Convert::ToWString(request.at("sid").get<std::string>());
+		const std::wstring username = Convert::ToWString(request.at("username").get<std::string>());
+		std::wstring password = ExtractPassword(request);
+		if (!IsSameSid(caller.sid, sid))
+		{
+			SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t));
+			throw std::runtime_error("policy changes are limited to the current user");
+		}
+		std::wstring resolvedName, computer, resolvedSid;
+		const bool localAccount = localfido::ResolveLocalAccount(username, resolvedName, computer, resolvedSid) && IsSameSid(sid, resolvedSid);
+		const bool passwordOk = localAccount && localfido::ValidateLocalPassword(resolvedName, password);
+		SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t));
+		if (!passwordOk) throw std::runtime_error("Windows password validation failed");
 		const bool enabled = request.at("enabled").get<bool>();
 		if (enabled)
 		{

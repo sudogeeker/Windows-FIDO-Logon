@@ -60,7 +60,13 @@ namespace localfido
 			const std::wstring& password,
 			const std::string& credentialId,
 			std::wstring& error);
-		bool SetEnforcement(const std::wstring& sid, bool enabled, std::wstring& error, bool allowFilterConflict = false);
+		bool SetEnforcement(
+			const std::wstring& sid,
+			const std::wstring& username,
+			const std::wstring& password,
+			bool enabled,
+			std::wstring& error,
+			bool allowFilterConflict = false);
 
 	private:
 		bool Call(const nlohmann::json& request, nlohmann::json& response, std::wstring& error);

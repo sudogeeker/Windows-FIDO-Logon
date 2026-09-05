@@ -372,16 +372,35 @@ namespace
 
 		const int buttonTop = height - margin - Scale(app.window, 28) - buttonHeight;
 		const int buttonWidth = (contentWidth - gap * 2) / 3;
-		MoveWindow(app.addButton, margin, buttonTop, buttonWidth, buttonHeight, TRUE);
-		MoveWindow(app.testButton, margin + buttonWidth + gap, buttonTop, buttonWidth, buttonHeight, TRUE);
-		MoveWindow(app.removeButton, margin + (buttonWidth + gap) * 2, buttonTop, buttonWidth, buttonHeight, TRUE);
 		const int secondRowTop = buttonTop - gap - buttonHeight;
-		MoveWindow(app.list, margin, listTop, contentWidth, std::max(0, secondRowTop - gap - listTop), TRUE);
-		MoveWindow(app.enableButton, margin, secondRowTop, buttonWidth, buttonHeight, TRUE);
-		MoveWindow(app.disableButton, margin + buttonWidth + gap, secondRowTop, buttonWidth, buttonHeight, TRUE);
-		MoveWindow(app.refreshButton, margin + (buttonWidth + gap) * 2, secondRowTop, buttonWidth, buttonHeight, TRUE);
-		MoveWindow(app.subtitle, margin, headerHeight - Scale(app.window, 30), contentWidth, Scale(app.window, 22), TRUE);
-		MoveWindow(app.progress, margin, height - margin - Scale(app.window, 20), contentWidth, Scale(app.window, 20), TRUE);
+		struct Placement { HWND control; int x, y, width, height; };
+		const Placement placements[] = {
+			{ app.addButton, margin, buttonTop, buttonWidth, buttonHeight },
+			{ app.testButton, margin + buttonWidth + gap, buttonTop, buttonWidth, buttonHeight },
+			{ app.removeButton, margin + (buttonWidth + gap) * 2, buttonTop, buttonWidth, buttonHeight },
+			{ app.list, margin, listTop, contentWidth, std::max(0, secondRowTop - gap - listTop) },
+			{ app.enableButton, margin, secondRowTop, buttonWidth, buttonHeight },
+			{ app.disableButton, margin + buttonWidth + gap, secondRowTop, buttonWidth, buttonHeight },
+			{ app.refreshButton, margin + (buttonWidth + gap) * 2, secondRowTop, buttonWidth, buttonHeight },
+			{ app.subtitle, margin, headerHeight - Scale(app.window, 30), contentWidth, Scale(app.window, 22) },
+			{ app.progress, margin, height - margin - Scale(app.window, 20), contentWidth, Scale(app.window, 20) }
+		};
+
+		HDWP deferred = BeginDeferWindowPos(ARRAYSIZE(placements));
+		for (const auto& placement : placements)
+		{
+			if (!deferred) break;
+			deferred = DeferWindowPos(deferred, placement.control, nullptr, placement.x, placement.y,
+				placement.width, placement.height, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOCOPYBITS);
+		}
+		const bool positioned = deferred && EndDeferWindowPos(deferred);
+		if (!positioned)
+		{
+			for (const auto& placement : placements)
+				SetWindowPos(placement.control, nullptr, placement.x, placement.y, placement.width, placement.height,
+					SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOCOPYBITS);
+		}
+		RedrawWindow(app.window, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 	}
 
 	void ApplyWindowFonts(AppState& app)
@@ -588,9 +607,14 @@ namespace
 				allowFilterConflict = true;
 			}
 		}
+		std::wstring password;
+		if (!Prompt(app.window, enabled ? L"Authorize MFA enablement" : L"Authorize MFA disablement",
+			L"Enter your current Windows password:", true, password)) return;
 		Progress(app.window, enabled ? L"Enabling MFA..." : L"Disabling MFA...");
 		std::wstring error;
-		if (!app.broker.SetEnforcement(app.sid, enabled, error, allowFilterConflict)) { Error(app.window, error); return; }
+		const bool changed = app.broker.SetEnforcement(app.sid, app.username, password, enabled, error, allowFilterConflict);
+		ClearSecret(password);
+		if (!changed) { Error(app.window, error); return; }
 		Refresh(app);
 	}
 
@@ -668,7 +692,6 @@ namespace
 			RECT client{};
 			GetClientRect(window, &client);
 			LayoutMainWindow(*app, client.right, client.bottom);
-			InvalidateRect(window, nullptr, TRUE);
 			return 0;
 		}
 		case WM_DPICHANGED:

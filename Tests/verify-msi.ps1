@@ -25,7 +25,18 @@ try {
         '54B25B17-C7AE-4C2B-B3C4-E3B29A73D9B1',
         'SafeBoot\Minimal',
         'CurrentMajorVersionNumber',
-        'WINDOWSMAJORVERSION = "#10"'
+        'WINDOWSMAJORVERSION = "#10"',
+        'MfaFilterEnabledSearch',
+        'MFAFILTERENABLED = "#1"',
+        'BlockMfaEnabledUninstall',
+        'Before="InstallValidate"',
+        'Secure="yes"',
+        'ARPNOREPAIR',
+        'PermissionEx',
+        'O:SYG:SYD:P(A;;FA;;;SY)(A;;FRFX;;;BA)(A;;FRFX;;;BU)',
+        'O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FR;;;BA)',
+        'ForceDeleteOnUninstall="yes"',
+        'FirstFailureActionType="restart"'
     )) {
         if ($text -notmatch [regex]::Escape($required)) { throw "MSI contract is missing: $required" }
     }

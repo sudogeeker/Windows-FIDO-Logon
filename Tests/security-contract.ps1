@@ -71,7 +71,7 @@ foreach ($required in @('VCPKG_ROOT_DIR', 'no-sock', 'Pinned upstream OpenSSL po
 }
 
 $broker = Get-Content -LiteralPath (Join-Path $root 'BrokerService\BrokerService.cpp') -Raw
-foreach ($required in @('kSessionLifetime', 'kMaximumSessions', 'kMaximumSessionsPerCaller', 'kPipeIoTimeoutMs', 'TakeSession', 'ImpersonateNamedPipeClient', 'FILE_FLAG_FIRST_PIPE_INSTANCE', 'FILE_FLAG_OVERLAPPED', 'PIPE_REJECT_REMOTE_CLIENTS', 'SecureZeroMemory', 'finish_registration', 'begin_remove', 'remove_with_password', 'finish_remove', 'policy state is inconsistent')) {
+foreach ($required in @('kSessionLifetime', 'kMaximumSessions', 'kMaximumSessionsPerCaller', 'kPipeIoTimeoutMs', 'TakeSession', 'ImpersonateNamedPipeClient', 'FILE_FLAG_FIRST_PIPE_INSTANCE', 'FILE_FLAG_OVERLAPPED', 'PIPE_REJECT_REMOTE_CLIENTS', 'SecureZeroMemory', 'finish_registration', 'begin_remove', 'remove_with_password', 'finish_remove', 'policy state is inconsistent', 'policy changes are limited to the current user')) {
     if ($broker -notmatch $required) { throw "Broker security contract missing: $required" }
 }
 if ($runtimeText -match 'WinVerifyTrust|WTHelper|(?i)wintrust\.lib') {
@@ -92,9 +92,23 @@ $client = Get-Content -LiteralPath (Join-Path $root 'CppClient\CppClient\BrokerC
 foreach ($required in @('GetNamedPipeServerProcessId', 'WinLocalSystemSid')) {
     if ($client -notmatch $required) { throw "Broker client trust contract missing: $required" }
 }
+if ($client -notmatch '(?s)SetEnforcement.*?"password".*?ClearJsonSecret\(request, "password"\)') {
+    throw 'MFA policy requests must carry and clear the Windows password.'
+}
+if ($broker -notmatch '(?s)operation == "set_enforcement".*?ExtractPassword\(request\).*?ValidateLocalPassword') {
+    throw 'Broker MFA policy changes must validate the current Windows password.'
+}
 $accounts = Get-Content -LiteralPath (Join-Path $root 'CppClient\CppClient\LocalAccount.cpp') -Raw
 foreach ($required in @('SpecialAccounts\\UserList', 'UF_ACCOUNTDISABLE', 'UF_NORMAL_ACCOUNT')) {
     if ($accounts -notmatch [regex]::Escape($required)) { throw "Local account visibility contract missing: $required" }
+}
+$store = Get-Content -LiteralPath (Join-Path $root 'CppClient\CppClient\LocalCredentialStore.cpp') -Raw
+foreach ($required in @('O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FR;;;BA)', 'OWNER_SECURITY_INFORMATION', 'O:SYG:SYD:P(A;;FA;;;SY)(A;;FR;;;BA)')) {
+    if ($store -notmatch [regex]::Escape($required)) { throw "Credential-vault SYSTEM ownership contract missing: $required" }
+}
+$manager = Get-Content -LiteralPath (Join-Path $root 'Manager\main.cpp') -Raw
+foreach ($required in @('BeginDeferWindowPos', 'SWP_NOCOPYBITS', 'RDW_ALLCHILDREN', 'RDW_UPDATENOW')) {
+    if ($manager -notmatch [regex]::Escape($required)) { throw "Manager resize-paint contract missing: $required" }
 }
 
 $verifier = Get-Content -LiteralPath (Join-Path $root 'CppClient\CppClient\FidoVerifier.cpp') -Raw
@@ -121,7 +135,7 @@ foreach ($required in @('BuildProjectReferences=false', '-BuildDirectory $buildD
 }
 
 $installer = Get-Content -LiteralPath (Join-Path $root 'WiXSetup\Product.wxs') -Raw
-foreach ($required in @('Schedule="afterInstallExecute"', 'NeverOverwrite="yes"', 'ARPPRODUCTICON', 'WindowsFidoLogonBroker', 'SafeBoot\Minimal')) {
+foreach ($required in @('Schedule="afterInstallExecute"', 'NeverOverwrite="yes"', 'ARPPRODUCTICON', 'ARPNOREPAIR', 'WindowsFidoLogonBroker', 'SafeBoot\Minimal', 'MFAFILTERENABLED', 'Secure="yes"', 'REMOVE = &quot;ALL&quot;', 'NOT UPGRADINGPRODUCTCODE', 'BlockMfaEnabledUninstall', 'Before="InstallValidate"', 'PermissionEx Sddl=', 'FirstFailureActionType="restart"', 'ForceDeleteOnUninstall="yes"')) {
     if ($installer -notmatch [regex]::Escape($required)) { throw "Installer safety contract missing: $required" }
 }
 
