@@ -2,10 +2,11 @@ diff --git a/openbsd-compat/openbsd-compat.h b/openbsd-compat/openbsd-compat.h
 index 3108e9a..6a8e4bf 100644
 --- a/openbsd-compat/openbsd-compat.h
 +++ b/openbsd-compat/openbsd-compat.h
-@@ -29,13 +29,19 @@
+@@ -29,13 +29,20 @@
  #if defined(_WIN32) && !defined(HAVE_ENDIAN_H)
  #include <stdint.h>
 +#if defined(_MSC_VER)
++#include <windows.h>
 +#include <stdlib.h>
 +#define be16toh(x) _byteswap_ushort((uint16_t)(x))
 +#define htobe16(x) _byteswap_ushort((uint16_t)(x))

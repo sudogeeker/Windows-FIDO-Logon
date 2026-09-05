@@ -38,6 +38,10 @@ $overlayPort = Get-Content -LiteralPath (Join-Path $overlayRoot 'portfile.cmake'
 foreach ($required in @('SHA512 f168f1bac0b4ebf64a285d6f7b748cc3572e3280e8795e775471ddec059c4b255a80d79e5d93592a9e2a296ec1d959124a3c097e38a9ff203a34a9ccfefc6b66', '-DUSE_WINHELLO=OFF', '-DUSE_PCSC=OFF', '-DNFC_LINUX=OFF', 'local-only-windows.diff')) {
     if ($overlayPort -notmatch [regex]::Escape($required)) { throw "libfido2 overlay contract missing: $required" }
 }
+$localOnlyPatch = Get-Content -LiteralPath (Join-Path $overlayRoot 'local-only-windows.diff') -Raw
+foreach ($required in @('#include <windows.h>', '_byteswap_ushort', '_byteswap_ulong')) {
+    if ($localOnlyPatch -notmatch [regex]::Escape($required)) { throw "libfido2 Windows compatibility patch missing: $required" }
+}
 
 $broker = Get-Content -LiteralPath (Join-Path $root 'BrokerService\BrokerService.cpp') -Raw
 foreach ($required in @('kSessionLifetime', 'kMaximumSessions', 'kMaximumSessionsPerCaller', 'kPipeIoTimeoutMs', 'TakeSession', 'ImpersonateNamedPipeClient', 'FILE_FLAG_FIRST_PIPE_INSTANCE', 'FILE_FLAG_OVERLAPPED', 'PIPE_REJECT_REMOTE_CLIENTS', 'SecureZeroMemory', 'finish_registration', 'begin_remove', 'finish_remove', 'policy state is inconsistent')) {
