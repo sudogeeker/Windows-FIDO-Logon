@@ -21,6 +21,7 @@
 ** * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #include "helpers.h"
+#include <cwchar>
 #include <intsafe.h>
 #include <wincred.h>
 #include <string>
@@ -42,6 +43,7 @@ HRESULT FieldDescriptorCoAllocCopy(
 	{
 		pcpfd->dwFieldID = rcpfd.dwFieldID;
 		pcpfd->cpft = rcpfd.cpft;
+		pcpfd->guidFieldType = rcpfd.guidFieldType;
 
 		if (rcpfd.pszLabel)
 		{
@@ -87,6 +89,7 @@ HRESULT FieldDescriptorCopy(
 
 	cpfd.dwFieldID = rcpfd.dwFieldID;
 	cpfd.cpft = rcpfd.cpft;
+	cpfd.guidFieldType = rcpfd.guidFieldType;
 
 	if (rcpfd.pszLabel)
 	{
@@ -554,7 +557,7 @@ HRESULT ProtectIfNecessaryAndCopyPassword(
 				hr = _ProtectAndCopyString(pwzPasswordCopy, ppwzProtectedPassword);
 			}
 
-			SecureZeroMemory(pwzPasswordCopy, sizeof(pwzPasswordCopy));
+			SecureZeroMemory(pwzPasswordCopy, (wcslen(pwzPasswordCopy) + 1) * sizeof(WCHAR));
 			CoTaskMemFree(pwzPasswordCopy);
 		}
 	}
@@ -598,6 +601,7 @@ HRESULT UnProtectIfNecessaryAndCopyPassword(
 				}
 			}
 
+			SecureZeroMemory(pwzPasswordCopy, (wcslen(pwzPasswordCopy) + 1) * sizeof(WCHAR));
 			CoTaskMemFree(pwzPasswordCopy);
 		}
 	}
@@ -664,6 +668,7 @@ HRESULT _UnProtectAndCopyString(
 			}
 		}
 
+		SecureZeroMemory(pwzToUnProtectCopy, (wcslen(pwzToUnProtectCopy) + 1) * sizeof(WCHAR));
 		CoTaskMemFree(pwzToUnProtectCopy);
 	}
 

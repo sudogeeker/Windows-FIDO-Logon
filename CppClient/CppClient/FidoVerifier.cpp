@@ -9,6 +9,7 @@
 #include <fido/es256.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <iterator>
 #include <memory>
 #include <vector>
 
@@ -276,14 +277,15 @@ bool localfido::FidoVerifier::VerifyRegistration(
 
 	CredentialPtr credential(fido_cred_new());
 	if (!credential) { error = "out of memory"; return false; }
+	const char* operation = "set credential type";
 	int status = fido_cred_set_type(credential.get(), COSE_ES256);
-	if (status == FIDO_OK) status = fido_cred_set_rp(credential.get(), expectedRpId.c_str(), "Windows FIDO Logon");
-	if (status == FIDO_OK) status = fido_cred_set_clientdata(credential.get(), clientData.data(), clientData.size());
-	if (status == FIDO_OK) status = fido_cred_set_uv(credential.get(), FIDO_OPT_TRUE);
-	if (status == FIDO_OK) status = fido_cred_set_attobj(credential.get(), attestation.data(), attestation.size());
+	if (status == FIDO_OK) { operation = "set RP"; status = fido_cred_set_rp(credential.get(), expectedRpId.c_str(), "Windows FIDO Logon"); }
+	if (status == FIDO_OK) { operation = "set client data"; status = fido_cred_set_clientdata(credential.get(), clientData.data(), clientData.size()); }
+	if (status == FIDO_OK) { operation = "require user verification"; status = fido_cred_set_uv(credential.get(), FIDO_OPT_TRUE); }
+	if (status == FIDO_OK) { operation = "decode attestation object"; status = fido_cred_set_attobj(credential.get(), attestation.data(), attestation.size()); }
 	if (status != FIDO_OK)
 	{
-		error = std::string("registration verification failed: ") + fido_strerr(status);
+		error = std::string("registration verification failed while attempting to ") + operation + ": " + fido_strerr(status);
 		return false;
 	}
 

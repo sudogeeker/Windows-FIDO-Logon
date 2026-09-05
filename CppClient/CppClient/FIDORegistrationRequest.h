@@ -1,7 +1,8 @@
 #pragma once
-#include <string>
-#include <vector>
 #include <map>
+#include <string>
+#include <utility>
+#include <vector>
 
 class FIDORegistrationRequest
 {

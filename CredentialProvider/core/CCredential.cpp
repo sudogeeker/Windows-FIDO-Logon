@@ -15,7 +15,9 @@
 
 #include <Windows.h>
 #include <fido.h>
+#include <cwchar>
 #include <new>
+#include <utility>
 
 namespace
 {

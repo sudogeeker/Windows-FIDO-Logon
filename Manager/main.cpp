@@ -7,8 +7,11 @@
 
 #include <Windows.h>
 #include <shellapi.h>
+#include <cstdlib>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -20,6 +23,11 @@ namespace
 	constexpr int IDC_ENABLE = 104;
 	constexpr int IDC_DISABLE = 105;
 	constexpr int IDC_REFRESH = 106;
+
+	HMENU ControlId(int value)
+	{
+		return reinterpret_cast<HMENU>(static_cast<INT_PTR>(value));
+	}
 
 	void ClearSecret(std::wstring& value)
 	{
@@ -52,9 +60,9 @@ namespace
 			state->edit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
 				ES_AUTOHSCROLL | (state->password ? ES_PASSWORD : 0), 16, 68, 420, 25, window, nullptr, nullptr, nullptr);
 			CreateWindowW(L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 270, 112, 78, 28,
-				window, reinterpret_cast<HMENU>(IDOK), nullptr, nullptr);
+				window, ControlId(IDOK), nullptr, nullptr);
 			CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 358, 112, 78, 28,
-				window, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
+				window, ControlId(IDCANCEL), nullptr, nullptr);
 			SetFocus(state->edit);
 			return 0;
 		}
@@ -337,13 +345,13 @@ namespace
 		case WM_CREATE:
 			CreateWindowW(L"STATIC", L"Registered USB FIDO2 security keys", WS_CHILD | WS_VISIBLE, 16, 16, 430, 24, window, nullptr, nullptr, nullptr);
 			app->list = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | LBS_NOTIFY,
-				16, 44, 548, 220, window, reinterpret_cast<HMENU>(IDC_KEYS), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Add key", WS_CHILD | WS_VISIBLE, 16, 280, 88, 30, window, reinterpret_cast<HMENU>(IDC_ADD_KEY), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Test key", WS_CHILD | WS_VISIBLE, 112, 280, 88, 30, window, reinterpret_cast<HMENU>(IDC_TEST_KEY), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Remove", WS_CHILD | WS_VISIBLE, 208, 280, 88, 30, window, reinterpret_cast<HMENU>(IDC_REMOVE_KEY), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Enable MFA", WS_CHILD | WS_VISIBLE, 304, 280, 96, 30, window, reinterpret_cast<HMENU>(IDC_ENABLE), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Disable MFA", WS_CHILD | WS_VISIBLE, 408, 280, 96, 30, window, reinterpret_cast<HMENU>(IDC_DISABLE), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Refresh", WS_CHILD | WS_VISIBLE, 512, 280, 70, 30, window, reinterpret_cast<HMENU>(IDC_REFRESH), nullptr, nullptr);
+				16, 44, 548, 220, window, ControlId(IDC_KEYS), nullptr, nullptr);
+			CreateWindowW(L"BUTTON", L"Add key", WS_CHILD | WS_VISIBLE, 16, 280, 88, 30, window, ControlId(IDC_ADD_KEY), nullptr, nullptr);
+			CreateWindowW(L"BUTTON", L"Test key", WS_CHILD | WS_VISIBLE, 112, 280, 88, 30, window, ControlId(IDC_TEST_KEY), nullptr, nullptr);
+			CreateWindowW(L"BUTTON", L"Remove", WS_CHILD | WS_VISIBLE, 208, 280, 88, 30, window, ControlId(IDC_REMOVE_KEY), nullptr, nullptr);
+			CreateWindowW(L"BUTTON", L"Enable MFA", WS_CHILD | WS_VISIBLE, 304, 280, 96, 30, window, ControlId(IDC_ENABLE), nullptr, nullptr);
+			CreateWindowW(L"BUTTON", L"Disable MFA", WS_CHILD | WS_VISIBLE, 408, 280, 96, 30, window, ControlId(IDC_DISABLE), nullptr, nullptr);
+			CreateWindowW(L"BUTTON", L"Refresh", WS_CHILD | WS_VISIBLE, 512, 280, 70, 30, window, ControlId(IDC_REFRESH), nullptr, nullptr);
 			Refresh(*app);
 			return 0;
 		case WM_COMMAND:

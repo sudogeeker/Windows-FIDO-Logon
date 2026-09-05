@@ -10,7 +10,7 @@
                   DowngradeErrorMessage="A newer Windows FIDO Logon version is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
-    <Condition Message="Windows FIDO Logon requires 64-bit Windows 10 or Windows 11.">Installed OR (VersionNT64 AND MsiNTProductType = 1 AND WindowsBuild &gt;= 10240)</Condition>
+    <Condition Message="Windows FIDO Logon requires 64-bit Windows 10 or Windows 11.">Installed OR VersionNT64 &gt;= 1000</Condition>
     <Condition Message="Administrator privileges are required.">Privileged</Condition>
 
     <Directory Id="TARGETDIR" Name="SourceDir">

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
+    <VcpkgTriplet Condition="'$(VcpkgTriplet)'==''">x64-windows-static</VcpkgTriplet>
     <WflDependencyRoot Condition="'$(WflDependencyRoot)'==''">$(SolutionDir)vcpkg_installed\$(VcpkgTriplet)</WflDependencyRoot>
   </PropertyGroup>
   <ItemDefinitionGroup>

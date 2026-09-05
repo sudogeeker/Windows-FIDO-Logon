@@ -15,6 +15,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <memory>
+#include <utility>
 
 #pragma comment(lib, "Bcrypt.lib")
 
@@ -270,13 +271,12 @@ std::string FIDODevice::BuildAttestationObject(fido_cred_t* credential)
 		cbor_decref(&root);
 		return {};
 	}
-	if (!AddMapPair(root, "authData", cbor_build_bytestring(authData, authDataLength)))
+	if (!AddMapPair(root, "attStmt", statement))
 	{
-		cbor_decref(&statement);
 		cbor_decref(&root);
 		return {};
 	}
-	if (!AddMapPair(root, "attStmt", statement))
+	if (!AddMapPair(root, "authData", cbor_build_bytestring(authData, authDataLength)))
 	{
 		cbor_decref(&root);
 		return {};

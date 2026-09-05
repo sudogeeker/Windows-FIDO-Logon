@@ -25,6 +25,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <locale>
 
 using namespace std;
 

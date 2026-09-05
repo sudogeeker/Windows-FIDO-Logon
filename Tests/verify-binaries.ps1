@@ -30,7 +30,7 @@ foreach ($name in $targets) {
 
     $headers = (& $DumpbinPath /nologo /headers $path 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed for $name" }
-    foreach ($required in @('Dynamic base', 'NX compatible', 'Guard CF')) {
+    foreach ($required in @('Dynamic base', 'NX compatible', 'Control Flow Guard')) {
         if ($headers -notmatch [regex]::Escape($required)) { throw "$name is missing PE hardening flag: $required" }
     }
 

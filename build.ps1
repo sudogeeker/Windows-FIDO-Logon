@@ -46,6 +46,11 @@ $nlohmannHeader = Join-Path $installedRoot 'x64-windows-static\include\nlohmann\
 if (-not (Test-Path -LiteralPath $nlohmannHeader -PathType Leaf)) {
     throw "Pinned header dependency is missing: $nlohmannHeader"
 }
+$opensslConfiguration = Join-Path $installedRoot 'x64-windows-static\include\openssl\configuration.h'
+if (-not (Test-Path -LiteralPath $opensslConfiguration -PathType Leaf) -or
+    (Get-Content -LiteralPath $opensslConfiguration -Raw) -notmatch '#\s*define\s+OPENSSL_NO_SOCK\b') {
+    throw 'Pinned OpenSSL was not built with socket support disabled.'
+}
 
 $solutionDirectory = $root.TrimEnd('\') + '\'
 $common = @(
@@ -88,14 +93,19 @@ $runtimeBinaries = @(
 
 if (-not $SkipMsi) {
     if (-not $WixRoot) { $WixRoot = $env:WIX }
-    if (-not $WixRoot -or -not (Test-Path -LiteralPath (Join-Path $WixRoot 'wix.targets'))) {
+    if (-not $WixRoot -or
+        -not (Test-Path -LiteralPath (Join-Path $WixRoot 'wix.targets') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $WixRoot 'WixTasks.dll') -PathType Leaf)) {
         throw 'WiX 3.14.1 binaries are required; pass -WixRoot.'
     }
+    $wixRootPath = (Resolve-Path -LiteralPath $WixRoot).Path.TrimEnd('\')
     $wixArguments = $common + @(
         '/p:BuildProjectReferences=false',
-        "/p:WixTargetsPath=$(Join-Path $WixRoot 'wix.targets')",
-        "/p:WixToolPath=$($WixRoot.TrimEnd('\'))\",
-        "/p:WixExtDir=$($WixRoot.TrimEnd('\'))\"
+        "/p:WixTargetsPath=$(Join-Path $wixRootPath 'wix.targets')",
+        "/p:WixTasksPath=$(Join-Path $wixRootPath 'WixTasks.dll')",
+        "/p:WixInstallPath=$wixRootPath",
+        "/p:WixToolPath=$wixRootPath\",
+        "/p:WixExtDir=$wixRootPath\"
     )
     & $msbuild (Join-Path $root 'WiXSetup\WiXSetup.wixproj') @wixArguments
     if ($LASTEXITCODE -ne 0) { throw 'MSI build failed.' }

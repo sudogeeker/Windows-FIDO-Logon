@@ -9,10 +9,13 @@
 #include <Sddl.h>
 #include <bcrypt.h>
 #include <algorithm>
+#include <cstdio>
 #include <iomanip>
+#include <iterator>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #pragma comment(lib, "Bcrypt.lib")

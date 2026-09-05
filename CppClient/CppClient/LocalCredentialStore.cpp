@@ -17,6 +17,7 @@
 #include <iomanip>
 #include <set>
 #include <sstream>
+#include <utility>
 
 #pragma comment(lib, "Bcrypt.lib")
 #pragma comment(lib, "Crypt32.lib")

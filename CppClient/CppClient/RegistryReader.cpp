@@ -5,6 +5,7 @@
 #include "RegistryReader.h"
 
 #include <Windows.h>
+#include <cwchar>
 #include <utility>
 #include <vector>
 

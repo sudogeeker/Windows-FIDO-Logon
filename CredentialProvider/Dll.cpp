@@ -22,6 +22,8 @@
 
 #include "Dll.h"
 
+#include <new>
+
 static LONG g_cRef = 0;   // global dll reference count
 HINSTANCE g_hinst = nullptr; // global dll hinstance
 
@@ -102,7 +104,7 @@ HRESULT CClassFactory_CreateInstance(__in REFCLSID rclsid, __in REFIID riid, __d
 
 	if (CLSID_CSample == rclsid)
 	{
-		CClassFactory* pcf = new CClassFactory();
+		CClassFactory* pcf = new (std::nothrow) CClassFactory();
 		if (pcf)
 		{
 			hr = pcf->QueryInterface(riid, ppv);

@@ -5,9 +5,11 @@
 #include <bcrypt.h>
 #include <cbor.h>
 #include <fido.h>
+#include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #pragma comment(lib, "Bcrypt.lib")
@@ -159,8 +161,8 @@ namespace
 			authData.insert(authData.end(), cose.begin(), cose.end());
 			cbor_item_t* root = cbor_new_definite_map(3);
 			Add(root, cbor_build_string("fmt"), cbor_build_string("none"));
-			Add(root, cbor_build_string("authData"), cbor_build_bytestring(authData.data(), authData.size()));
 			Add(root, cbor_build_string("attStmt"), cbor_new_definite_map(0));
+			Add(root, cbor_build_string("authData"), cbor_build_bytestring(authData.data(), authData.size()));
 			const auto bytes = Serialize(root);
 			cbor_decref(&root);
 			return Convert::Base64URLEncode(bytes);
@@ -202,8 +204,9 @@ int main()
 		const std::vector<unsigned char> registrationClientBytes(registrationClient.begin(), registrationClient.end());
 		localfido::RegistrationResult registration;
 		std::string error;
-		Require(localfido::FidoVerifier::VerifyRegistration(fixture.registrationChallenge, fixture.rpId, fixture.origin,
-			fixture.AttestationObject(), Convert::Base64URLEncode(registrationClientBytes), registration, error), "valid registration rejected");
+		if (!localfido::FidoVerifier::VerifyRegistration(fixture.registrationChallenge, fixture.rpId, fixture.origin,
+			fixture.AttestationObject(), Convert::Base64URLEncode(registrationClientBytes), registration, error))
+			throw std::runtime_error("valid registration rejected: " + error);
 		Require(!localfido::FidoVerifier::VerifyRegistration("wrong", fixture.rpId, fixture.origin,
 			fixture.AttestationObject(), Convert::Base64URLEncode(registrationClientBytes), registration, error), "registration challenge tamper accepted");
 		Require(!localfido::FidoVerifier::VerifyRegistration(fixture.registrationChallenge, fixture.rpId, "https://wrong",

@@ -33,8 +33,17 @@ foreach ($requiredLibrary in @('FidoCore.lib', 'fido2_static.lib', 'libcrypto.li
     if ($projectText -notmatch [regex]::Escape($requiredLibrary)) { throw "Pinned static dependency missing: $requiredLibrary" }
 }
 
-$runtimeFiles = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.cpp,*.h,*.vcxproj,*.wxs,*.wxi |
-    Where-Object { $_.FullName -notmatch '\\Tests?\\' }
+$runtimeRoots = @(
+    'BrokerService',
+    'CppClient',
+    'CredentialProvider',
+    'CredentialProviderFilter',
+    'Manager',
+    'RegistryHelpers',
+    'Shared',
+    'WiXSetup'
+) | ForEach-Object { Join-Path $root $_ } | Where-Object { Test-Path -LiteralPath $_ }
+$runtimeFiles = Get-ChildItem -LiteralPath $runtimeRoots -Recurse -File -Include *.cpp,*.h,*.vcxproj,*.wxs,*.wxi
 $runtimeText = ($runtimeFiles | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join "`n"
 foreach ($symbol in @('WinHttpOpen', 'InternetOpen', 'HttpSendRequest', 'WSAStartup', 'fido_dev_set_pcsc')) {
     if ($runtimeText -match $symbol) { throw "Forbidden runtime networking/NFC symbol present: $symbol" }
@@ -50,6 +59,14 @@ foreach ($required in @('SHA512 f168f1bac0b4ebf64a285d6f7b748cc3572e3280e8795e77
 $localOnlyPatch = Get-Content -LiteralPath (Join-Path $overlayRoot 'local-only-windows.diff') -Raw
 foreach ($required in @('#include <windows.h>', '_byteswap_ushort', '_byteswap_ulong')) {
     if ($localOnlyPatch -notmatch [regex]::Escape($required)) { throw "libfido2 Windows compatibility patch missing: $required" }
+}
+
+$opensslOverlayRoot = Join-Path $root 'vcpkg-overlays\openssl'
+$opensslOverlayManifest = Get-Content -LiteralPath (Join-Path $opensslOverlayRoot 'vcpkg.json') -Raw | ConvertFrom-Json
+if ($opensslOverlayManifest.version -ne '3.6.2') { throw 'The local-only OpenSSL overlay must be pinned to 3.6.2' }
+$opensslOverlayPort = Get-Content -LiteralPath (Join-Path $opensslOverlayRoot 'portfile.cmake') -Raw
+foreach ($required in @('VCPKG_ROOT_DIR', 'no-sock', 'Pinned upstream OpenSSL port layout changed')) {
+    if ($opensslOverlayPort -notmatch [regex]::Escape($required)) { throw "OpenSSL local-only overlay contract missing: $required" }
 }
 
 $broker = Get-Content -LiteralPath (Join-Path $root 'BrokerService\BrokerService.cpp') -Raw
@@ -81,7 +98,7 @@ foreach ($forbidden in @('WINDOWS_SIGNING_CERTIFICATE_BASE64', 'WINDOWS_SIGNING_
     if ($workflow -match [regex]::Escape($forbidden)) { throw "Unsigned release workflow still requires signing material: $forbidden" }
 }
 $buildScript = Get-Content -LiteralPath (Join-Path $root 'build.ps1') -Raw
-foreach ($required in @('BuildProjectReferences=false', '-BuildDirectory $buildDirectory', 'verify-binaries.ps1', 'verify-msi.ps1', 'fido2_static.lib', 'libcrypto.lib', 'zs.lib')) {
+foreach ($required in @('BuildProjectReferences=false', '-BuildDirectory $buildDirectory', 'verify-binaries.ps1', 'verify-msi.ps1', 'fido2_static.lib', 'libcrypto.lib', 'zs.lib', 'OPENSSL_NO_SOCK')) {
     if ($buildScript -notmatch [regex]::Escape($required)) { throw "Build verification contract missing: $required" }
 }
 

@@ -20,3 +20,4 @@ CppClient/nlohmann/json.hpp
 UpgradeLog.htm
 vcpkg_installed/
 dist/
+.local-tools/
