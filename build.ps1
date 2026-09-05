@@ -62,6 +62,7 @@ $projects = @(
     'CppClient\CppClient\CppClient.vcxproj',
     'Tests\FidoVerifierTests.vcxproj',
     'Tests\BrokerProtocolTests.vcxproj',
+    'Tests\ManagerUiTests.vcxproj',
     'CredentialProvider\CredentialProvider.vcxproj',
     'CredentialProviderFilter\CredentialProviderFilter.vcxproj',
     'BrokerService\BrokerService.vcxproj',
@@ -77,6 +78,8 @@ $buildDirectory = Join-Path $root "bin\x64\$Configuration"
 if ($LASTEXITCODE -ne 0) { throw 'FidoVerifierTests failed.' }
 & (Join-Path $buildDirectory 'BrokerProtocolTests.exe')
 if ($LASTEXITCODE -ne 0) { throw 'BrokerProtocolTests failed.' }
+& (Join-Path $buildDirectory 'ManagerUiTests.exe')
+if ($LASTEXITCODE -ne 0) { throw 'ManagerUiTests failed.' }
 
 $toolset = Get-ChildItem -LiteralPath (Join-Path $vsInstall 'VC\Tools\MSVC') -Directory | Sort-Object Name -Descending | Select-Object -First 1
 if (-not $toolset) { throw 'MSVC toolset directory was not found.' }

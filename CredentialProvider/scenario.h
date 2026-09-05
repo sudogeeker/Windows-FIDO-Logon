@@ -70,7 +70,7 @@ static CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgScenarioCredProvFieldDescriptors
 	{ FID_LOGO, CPFT_TILE_IMAGE, const_cast<LPWSTR>(L"") },
 	{ FID_LARGE_TEXT, CPFT_LARGE_TEXT, const_cast<LPWSTR>(L"Windows FIDO Logon") },
 	{ FID_SMALL_TEXT, CPFT_SMALL_TEXT, const_cast<LPWSTR>(L"Local account password + security key") },
-	{ FID_USERNAME, CPFT_EDIT_TEXT, const_cast<LPWSTR>(L"Local user") },
+	{ FID_USERNAME, CPFT_COMBOBOX, const_cast<LPWSTR>(L"Local user") },
 	{ FID_PASSWORD, CPFT_PASSWORD_TEXT, const_cast<LPWSTR>(L"Windows password") },
 	{ FID_FIDO_PIN, CPFT_PASSWORD_TEXT, const_cast<LPWSTR>(L"Security-key PIN") },
 	{ FID_DEVICE_SELECT, CPFT_COMBOBOX, const_cast<LPWSTR>(L"USB security key") },

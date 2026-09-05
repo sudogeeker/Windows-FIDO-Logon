@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1
+
+- Run Manager broker and USB operations in the background, reject duplicate button notifications, and bound Broker I/O waits.
+- Apply MFA policy in the elevated Manager without launching a second process; refresh status on completion.
+- Remove runtime WinTrust validation and recognize the Windows GenericFilter by its CLSID and system COM server path.
+- Remove the header logo, separate the key list from button rows, and size input dialogs for DPI and text length.
+- Add Win32 responsiveness, cancellation, layout, Filter recognition, and pipe timeout regression tests.
+
 ## 1.0.0
 
 - Replaced the server-backed authentication client with a local FIDO core and Named Pipe Broker.

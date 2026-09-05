@@ -11,7 +11,7 @@ $targets = @(
     'WindowsFidoLogonManager.exe'
 )
 $forbiddenImports = @(
-    'winhttp.dll', 'wininet.dll', 'httpapi.dll', 'urlmon.dll', 'ws2_32.dll',
+    'winhttp.dll', 'wininet.dll', 'httpapi.dll', 'urlmon.dll', 'ws2_32.dll', 'wintrust.dll',
     'wldap32.dll', 'winscard.dll', 'fido2.dll', 'cbor.dll', 'crypto-*.dll',
     'libcrypto-*.dll', 'zlib*.dll', 'vcruntime*.dll', 'msvcp*.dll'
 )

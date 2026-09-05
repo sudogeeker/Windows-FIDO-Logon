@@ -2,6 +2,7 @@
 
 #include "Logger.h"
 #include "scenario.h"
+#include "Localization.h"
 
 #include <WtsApi32.h>
 #include <new>
@@ -61,7 +62,22 @@ HRESULT CProvider::GetFieldDescriptorCount(DWORD* count)
 HRESULT CProvider::GetFieldDescriptorAt(DWORD index, CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR** descriptor)
 {
 	if (!descriptor || index >= FID_NUM_FIELDS) return E_INVALIDARG;
-	return FieldDescriptorCoAllocCopy(s_rgScenarioCredProvFieldDescriptors[index], descriptor);
+	const HRESULT status = FieldDescriptorCoAllocCopy(s_rgScenarioCredProvFieldDescriptors[index], descriptor);
+	if (FAILED(status)) return status;
+	const PCWSTR localizedLabel = UiFieldLabel(static_cast<FIELD_ID>(index));
+	if (localizedLabel && *localizedLabel)
+	{
+		CoTaskMemFree((*descriptor)->pszLabel);
+		(*descriptor)->pszLabel = nullptr;
+		const HRESULT labelStatus = SHStrDupW(localizedLabel, &(*descriptor)->pszLabel);
+		if (FAILED(labelStatus))
+		{
+			CoTaskMemFree(*descriptor);
+			*descriptor = nullptr;
+			return labelStatus;
+		}
+	}
+	return S_OK;
 }
 
 HRESULT CProvider::GetCredentialCount(DWORD* count, DWORD* defaultIndex, BOOL* autoLogon)

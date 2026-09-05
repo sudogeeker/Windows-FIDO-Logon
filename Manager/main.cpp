@@ -1,13 +1,16 @@
 #include "BrokerClient.h"
 #include "Convert.h"
+#include "CredentialProviderFilters.h"
 #include "FIDODevice.h"
 #include "FIDOException.h"
 #include "FIDORegistrationRequest.h"
 #include "LocalAccount.h"
 
 #include <Windows.h>
-#include <shellapi.h>
 #include <algorithm>
+#include <functional>
+#include <memory>
+#include <thread>
 #include <cstdlib>
 #include <optional>
 #include <stdexcept>
@@ -25,6 +28,25 @@ namespace
 	constexpr int IDC_DISABLE = 105;
 	constexpr int IDC_REFRESH = 106;
 	constexpr int IDI_APP_ICON = 101;
+	constexpr UINT WM_UI_CALL = WM_APP + 1;
+	constexpr UINT WM_OPERATION_DONE = WM_APP + 2;
+	constexpr UINT WM_INITIAL_REFRESH = WM_APP + 3;
+	void Progress(HWND window, const std::wstring& text);
+
+	// All HWND mutations and dialogs run on the window's thread. The worker waits
+	// here only for user interaction; broker/USB I/O never runs on the UI thread.
+	void OnUi(HWND window, const std::function<void()>& action)
+	{
+		if (GetCurrentThreadId() == GetWindowThreadProcessId(window, nullptr)) action();
+		else SendMessageW(window, WM_UI_CALL, 0, reinterpret_cast<LPARAM>(&action));
+	}
+
+	int ShowMessage(HWND owner, const std::wstring& text, const std::wstring& title, UINT flags)
+	{
+		int result = IDCANCEL;
+		OnUi(owner, [&] { result = MessageBoxW(owner, text.c_str(), title.c_str(), flags); });
+		return result;
+	}
 	constexpr wchar_t kOurFilterGuid[] = L"{54B25B17-C7AE-4C2B-B3C4-E3B29A73D9B1}";
 	constexpr wchar_t kFilterRegistry[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Authentication\\Credential Provider Filters";
 
@@ -37,16 +59,17 @@ namespace
 	std::optional<FilterConflict> FindConflictingFilter()
 	{
 		HKEY key = nullptr;
-		if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, kFilterRegistry, 0, KEY_READ | KEY_WOW64_64KEY, &key) != ERROR_SUCCESS)
-			return std::nullopt;
+		const LONG opened = RegOpenKeyExW(HKEY_LOCAL_MACHINE, kFilterRegistry, 0, KEY_READ | KEY_WOW64_64KEY, &key);
+		if (opened == ERROR_FILE_NOT_FOUND) return std::nullopt;
+		if (opened != ERROR_SUCCESS) throw std::runtime_error("Unable to inspect installed Credential Provider Filters.");
 		for (DWORD index = 0;; ++index)
 		{
 			wchar_t name[128]{};
 			DWORD length = ARRAYSIZE(name);
 			const LONG status = RegEnumKeyExW(key, index, name, &length, nullptr, nullptr, nullptr, nullptr);
 			if (status == ERROR_NO_MORE_ITEMS) break;
-			if (status != ERROR_SUCCESS) continue;
-			if (_wcsicmp(name, kOurFilterGuid) == 0) continue;
+			if (status != ERROR_SUCCESS) { RegCloseKey(key); throw std::runtime_error("Unable to enumerate Credential Provider Filters."); }
+			if (_wcsicmp(name, kOurFilterGuid) == 0 || localfido::IsWindowsGenericFilter(name)) continue;
 			HKEY filter = nullptr;
 			std::wstring displayName = L"Unknown provider filter";
 			if (RegOpenKeyExW(key, name, 0, KEY_READ | KEY_WOW64_64KEY, &filter) == ERROR_SUCCESS)
@@ -95,6 +118,9 @@ namespace
 		bool password = false;
 		bool accepted = false;
 		HWND edit = nullptr;
+		HFONT font = nullptr;
+		int messageHeight = 0;
+		bool scrollMessage = false;
 	};
 
 	LRESULT CALLBACK PromptWindow(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -109,17 +135,23 @@ namespace
 		{
 		case WM_CREATE:
 		{
-			CreateWindowW(L"STATIC", state->message.c_str(), WS_CHILD | WS_VISIBLE, 16, 16, 420, 44, window, nullptr, nullptr, nullptr);
+			const int margin = Scale(window, 16), width = Scale(window, 420);
+			const int editTop = margin + state->messageHeight + Scale(window, 12);
+			const int buttonsTop = editTop + Scale(window, 42);
+			HWND label = CreateWindowW(state->scrollMessage ? L"EDIT" : L"STATIC", state->message.c_str(), WS_CHILD | WS_VISIBLE |
+				(state->scrollMessage ? ES_READONLY | ES_MULTILINE | WS_VSCROLL : 0), margin, margin, width, state->messageHeight, window, nullptr, nullptr, nullptr);
 			state->edit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
-				ES_AUTOHSCROLL | (state->password ? ES_PASSWORD : 0), 16, 68, 420, 25, window, nullptr, nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 270, 112, 78, 28,
+				ES_AUTOHSCROLL | (state->password ? ES_PASSWORD : 0), margin, editTop, width, Scale(window, 28), window, nullptr, nullptr, nullptr);
+			HWND ok = CreateWindowW(L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, Scale(window, 270), buttonsTop, Scale(window, 78), Scale(window, 30),
 				window, ControlId(IDOK), nullptr, nullptr);
-			CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 358, 112, 78, 28,
+			HWND cancel = CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP, Scale(window, 358), buttonsTop, Scale(window, 78), Scale(window, 30),
 				window, ControlId(IDCANCEL), nullptr, nullptr);
-			SetFocus(state->edit);
+			for (HWND control : { label, state->edit, ok, cancel })
+				SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(state->font), FALSE);
 			return 0;
 		}
 		case WM_COMMAND:
+			if (HIWORD(wParam) != BN_CLICKED) return 0;
 			if (LOWORD(wParam) == IDOK)
 			{
 				const int length = GetWindowTextLengthW(state->edit);
@@ -139,6 +171,12 @@ namespace
 
 	bool Prompt(HWND owner, const std::wstring& title, const std::wstring& message, bool password, std::wstring& value)
 	{
+		if (GetCurrentThreadId() != GetWindowThreadProcessId(owner, nullptr))
+		{
+			bool accepted = false;
+			OnUi(owner, [&] { accepted = Prompt(owner, title, message, password, value); });
+			return accepted;
+		}
 		static bool registered = false;
 		if (!registered)
 		{
@@ -152,17 +190,43 @@ namespace
 			registered = true;
 		}
 		PromptState state{ message, L"", password };
+		state.font = CreateFontW(-MulDiv(10, DpiFor(owner), 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+			DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+		HDC dc = GetDC(owner);
+		HGDIOBJ oldFont = SelectObject(dc, state.font);
+		RECT measured{ 0, 0, Scale(owner, 420), 0 };
+		DrawTextW(dc, message.c_str(), -1, &measured, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+		SelectObject(dc, oldFont);
+		ReleaseDC(owner, dc);
+		MONITORINFO monitor{ sizeof(monitor) };
+		GetMonitorInfoW(MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST), &monitor);
+		const int maximumHeight = std::max<int>(Scale(owner, 44), monitor.rcWork.bottom - monitor.rcWork.top - Scale(owner, 180));
+		state.messageHeight = std::min(std::max<int>(Scale(owner, 44), measured.bottom), maximumHeight);
+		state.scrollMessage = measured.bottom > state.messageHeight;
+		const DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
+		RECT frame{ 0, 0, Scale(owner, 452), state.messageHeight + Scale(owner, 116) };
+		AdjustWindowRectExForDpi(&frame, style, FALSE, WS_EX_DLGMODALFRAME, DpiFor(owner));
+		RECT ownerRect{};
+		GetWindowRect(owner, &ownerRect);
+		const int width = frame.right - frame.left, height = frame.bottom - frame.top;
+		const int x = std::max(monitor.rcWork.left, std::min((ownerRect.left + ownerRect.right - width) / 2, monitor.rcWork.right - width));
+		const int y = std::max(monitor.rcWork.top, std::min((ownerRect.top + ownerRect.bottom - height) / 2, monitor.rcWork.bottom - height));
 		EnableWindow(owner, FALSE);
 		HWND dialog = CreateWindowExW(WS_EX_DLGMODALFRAME, L"WindowsFidoLogonPrompt", title.c_str(),
-			WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 470, 190, owner, nullptr,
+			style, x, y, width, height, owner, nullptr,
 			GetModuleHandleW(nullptr), &state);
-		if (!dialog) { EnableWindow(owner, TRUE); return false; }
+		if (!dialog) { DeleteObject(state.font); EnableWindow(owner, TRUE); return false; }
 		ShowWindow(dialog, SW_SHOW);
+		SetFocus(state.edit);
 		MSG msg{};
-		while (IsWindow(dialog) && GetMessageW(&msg, nullptr, 0, 0) > 0)
+		BOOL received = TRUE;
+		while (IsWindow(dialog) && (received = GetMessageW(&msg, nullptr, 0, 0)) > 0)
 		{
 			if (!IsDialogMessageW(dialog, &msg)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
 		}
+		if (IsWindow(dialog)) DestroyWindow(dialog);
+		if (received == 0) PostQuitMessage(static_cast<int>(msg.wParam));
+		DeleteObject(state.font);
 		EnableWindow(owner, TRUE);
 		SetForegroundWindow(owner);
 		if (state.accepted) value = std::move(state.value);
@@ -171,7 +235,8 @@ namespace
 
 	void Error(HWND owner, const std::wstring& text)
 	{
-		MessageBoxW(owner, text.c_str(), L"Windows FIDO Logon", MB_OK | MB_ICONERROR);
+		if (!owner) MessageBoxW(nullptr, text.c_str(), L"Windows FIDO Logon", MB_OK | MB_ICONERROR);
+		else ShowMessage(owner, text, L"Windows FIDO Logon", MB_OK | MB_ICONERROR);
 	}
 
 	std::optional<size_t> ChooseDevice(HWND owner, const std::vector<FIDODevice>& devices, const std::wstring& purpose)
@@ -204,6 +269,7 @@ namespace
 			retainedPin = Convert::ToString(pin);
 			ClearSecret(pin);
 		}
+		Progress(owner, L"Touch your security key to continue...");
 		const int status = device.Sign(challenge.request, challenge.origin, retainedPin, assertion);
 		if (status != FIDO_OK)
 		{
@@ -224,22 +290,70 @@ namespace
 		HWND enableButton = nullptr;
 		HWND disableButton = nullptr;
 		HWND refreshButton = nullptr;
+		HWND progress = nullptr;
 		std::wstring username;
 		std::wstring sid;
 		localfido::AccountStatus status;
-		localfido::BrokerClient broker;
 		HFONT uiFont = nullptr;
 		HFONT titleFont = nullptr;
-		HICON logo = nullptr;
 		bool busy = false;
+		bool statusLoaded = false;
+		bool closePending = false;
+		std::thread worker;
 	};
+
+	struct Operation
+	{
+		AppState& ui;
+		HWND window;
+		std::wstring username, sid;
+		localfido::AccountStatus status;
+		localfido::BrokerClient broker;
+		LRESULT selectedItem;
+		explicit Operation(AppState& app) : ui(app), window(app.window), username(app.username), sid(app.sid),
+			status(app.status), selectedItem(SendMessageW(app.list, LB_GETCURSEL, 0, 0)) {}
+	};
+
+	void Progress(HWND window, const std::wstring& text)
+	{
+		OnUi(window, [&] {
+			auto app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+			SetWindowTextW(app->progress, text.c_str());
+		});
+	}
 
 	void SetBusy(AppState& app, bool busy)
 	{
 		app.busy = busy;
-		for (HWND control : { app.addButton, app.testButton, app.removeButton, app.enableButton, app.disableButton, app.refreshButton })
-			if (control) EnableWindow(control, busy ? FALSE : TRUE);
-		SetCursor(LoadCursorW(nullptr, busy ? IDC_WAIT : IDC_ARROW));
+		EnableWindow(app.addButton, !busy && app.statusLoaded);
+		EnableWindow(app.testButton, !busy && app.statusLoaded && !app.status.credentials.empty());
+		EnableWindow(app.removeButton, !busy && app.statusLoaded && SendMessageW(app.list, LB_GETCURSEL, 0, 0) != LB_ERR);
+		EnableWindow(app.enableButton, !busy && app.statusLoaded && !app.status.enforced && !app.status.credentials.empty());
+		EnableWindow(app.disableButton, !busy && app.statusLoaded && app.status.enforced);
+		EnableWindow(app.refreshButton, !busy);
+	}
+
+	bool StartOperation(AppState& app, const std::function<void()>& work)
+	{
+		if (app.busy || app.closePending) return false;
+		SetBusy(app, true);
+		SetWindowTextW(app.progress, L"Working...");
+		try
+		{
+			app.worker = std::thread([window = app.window, work] {
+				try { work(); }
+				catch (const std::exception& exception) { Error(window, Convert::ToWString(exception.what())); }
+				catch (...) { Error(window, L"The operation could not be completed."); }
+				PostMessageW(window, WM_OPERATION_DONE, 0, 0);
+			});
+		}
+		catch (...)
+		{
+			SetBusy(app, false);
+			SetWindowTextW(app.progress, L"Unable to start operation.");
+			return false;
+		}
+		return true;
 	}
 
 	void SetControlFont(HWND control, HFONT font)
@@ -254,20 +368,20 @@ namespace
 		const int gap = Scale(app.window, 12);
 		const int buttonHeight = Scale(app.window, 38);
 		const int listTop = headerHeight + Scale(app.window, 26);
-		const int listBottom = height - Scale(app.window, 92);
 		const int contentWidth = (width - margin * 2);
-		MoveWindow(app.list, margin, listTop, contentWidth, std::max(Scale(app.window, 100), listBottom - listTop), TRUE);
 
-		const int buttonTop = height - margin - buttonHeight;
+		const int buttonTop = height - margin - Scale(app.window, 28) - buttonHeight;
 		const int buttonWidth = (contentWidth - gap * 2) / 3;
 		MoveWindow(app.addButton, margin, buttonTop, buttonWidth, buttonHeight, TRUE);
 		MoveWindow(app.testButton, margin + buttonWidth + gap, buttonTop, buttonWidth, buttonHeight, TRUE);
 		MoveWindow(app.removeButton, margin + (buttonWidth + gap) * 2, buttonTop, buttonWidth, buttonHeight, TRUE);
 		const int secondRowTop = buttonTop - gap - buttonHeight;
+		MoveWindow(app.list, margin, listTop, contentWidth, std::max(0, secondRowTop - gap - listTop), TRUE);
 		MoveWindow(app.enableButton, margin, secondRowTop, buttonWidth, buttonHeight, TRUE);
 		MoveWindow(app.disableButton, margin + buttonWidth + gap, secondRowTop, buttonWidth, buttonHeight, TRUE);
 		MoveWindow(app.refreshButton, margin + (buttonWidth + gap) * 2, secondRowTop, buttonWidth, buttonHeight, TRUE);
 		MoveWindow(app.subtitle, margin, headerHeight - Scale(app.window, 30), contentWidth, Scale(app.window, 22), TRUE);
+		MoveWindow(app.progress, margin, height - margin - Scale(app.window, 20), contentWidth, Scale(app.window, 20), TRUE);
 	}
 
 	void ApplyWindowFonts(AppState& app)
@@ -279,30 +393,39 @@ namespace
 			DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
 		app.titleFont = CreateFontW(-MulDiv(18, dpi, 72), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
 			DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-		for (HWND control : { app.list, app.subtitle, app.addButton, app.testButton, app.removeButton, app.enableButton, app.disableButton, app.refreshButton })
+		for (HWND control : { app.list, app.subtitle, app.progress, app.addButton, app.testButton, app.removeButton, app.enableButton, app.disableButton, app.refreshButton })
 			SetControlFont(control, app.uiFont);
 	}
 
-	bool Refresh(AppState& app)
+	bool Refresh(Operation& app)
 	{
+		Progress(app.window, L"Reading account status...");
 		std::wstring error;
-		if (!app.broker.GetStatus(app.sid, app.status, error)) { Error(app.window, error); return false; }
-		SendMessageW(app.list, LB_RESETCONTENT, 0, 0);
-		for (const auto& item : app.status.credentials)
+		if (!app.broker.GetStatus(app.sid, app.status, error))
 		{
-			std::wstring line = Convert::ToWString(item.label) + L"  [" + Convert::ToWString(item.aaguid) + L"]";
-			SendMessageW(app.list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(line.c_str()));
+			OnUi(app.window, [&] { app.ui.statusLoaded = false; SetWindowTextW(app.ui.subtitle, L"Account status unavailable"); });
+			Error(app.window, error); return false;
 		}
-		const std::wstring summary = L"Signed in as " + app.username + L"  |  " +
-			std::to_wstring(app.status.credentials.size()) + (app.status.credentials.size() == 1 ? L" registered key" : L" registered keys") +
-			(app.status.enforced ? L"  |  MFA enabled" : L"  |  MFA disabled");
-		SetWindowTextW(app.subtitle, summary.c_str());
-		SetWindowTextW(app.window, L"Windows FIDO Logon");
-		InvalidateRect(app.window, nullptr, TRUE);
+		OnUi(app.window, [&] {
+			app.ui.status = app.status;
+			app.ui.statusLoaded = true;
+			SendMessageW(app.ui.list, LB_RESETCONTENT, 0, 0);
+			for (const auto& item : app.status.credentials)
+			{
+				std::wstring line = Convert::ToWString(item.label) + L"  [" + Convert::ToWString(item.aaguid) + L"]";
+				SendMessageW(app.ui.list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(line.c_str()));
+			}
+			const std::wstring summary = L"Signed in as " + app.username + L"  |  " +
+				std::to_wstring(app.status.credentials.size()) + (app.status.credentials.size() == 1 ? L" registered key" : L" registered keys") +
+				(app.status.enforced ? L"  |  MFA enabled" : L"  |  MFA disabled");
+			SetWindowTextW(app.ui.subtitle, summary.c_str());
+			SetWindowTextW(app.window, L"Windows FIDO Logon");
+			InvalidateRect(app.window, nullptr, TRUE);
+		});
 		return true;
 	}
 
-	bool AddKey(AppState& app)
+	bool AddKey(Operation& app)
 	{
 		std::wstring password, label;
 		if (!Prompt(app.window, L"Authorize enrollment", L"Enter your current Windows password:", true, password)) return false;
@@ -310,6 +433,7 @@ namespace
 		localfido::AuthenticationChallenge authorization;
 		localfido::RegistrationChallenge registration;
 		std::wstring error;
+		Progress(app.window, L"Authorizing enrollment...");
 		if (!app.broker.BeginRegistration(app.sid, app.username, password, Convert::ToString(label), authorization, registration, error))
 		{
 			ClearSecret(password); Error(app.window, error); return false;
@@ -317,6 +441,7 @@ namespace
 		ClearSecret(password);
 		if (authorization.enforced)
 		{
+			Progress(app.window, L"Finding registered USB security keys...");
 			auto devices = FIDODevice::GetDevices();
 			auto selected = ChooseDevice(app.window, devices, L"Choose an already-registered key to authorize adding another key.");
 			if (!selected) return false;
@@ -330,6 +455,7 @@ namespace
 			if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size());
 		}
 
+		Progress(app.window, L"Finding USB security keys...");
 		auto devices = FIDODevice::GetDevices();
 		auto selected = ChooseDevice(app.window, devices, L"Choose the new key to register.");
 		if (!selected) return false;
@@ -371,13 +497,18 @@ namespace
 		request.userVerification = true;
 		try
 		{
+			Progress(app.window, L"Touch the new security key to register it...");
 			auto created = device.Register(request, registration.origin, pin);
 			if (!created) throw std::runtime_error("The authenticator did not return a credential.");
 			localfido::AuthenticationChallenge proof;
 			if (!app.broker.CommitRegistration(registration.sessionId, Convert::ToString(label), created->attestationObject,
 				created->clientDataJSON, proof, error)) throw std::runtime_error(Convert::ToString(error));
 			FIDOSignResponse proofAssertion;
-			if (!SignChallenge(app.window, proof, device, pin, proofAssertion)) throw std::runtime_error("Proof of possession failed.");
+			if (!SignChallenge(app.window, proof, device, pin, proofAssertion))
+			{
+				if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size());
+				return false;
+			}
 			if (!app.broker.FinishRegistration(proof.sessionId, proofAssertion, error)) throw std::runtime_error(Convert::ToString(error));
 		}
 		catch (const std::exception& exception)
@@ -387,15 +518,16 @@ namespace
 			return false;
 		}
 		if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size());
-		MessageBoxW(app.window, L"Security key registered and proof of possession verified.", L"Windows FIDO Logon", MB_OK | MB_ICONINFORMATION);
+		ShowMessage(app.window, L"Security key registered and proof of possession verified.", L"Windows FIDO Logon", MB_OK | MB_ICONINFORMATION);
 		return Refresh(app);
 	}
 
-	bool TestKey(AppState& app)
+	bool TestKey(Operation& app)
 	{
 		localfido::AuthenticationChallenge challenge;
 		std::wstring error;
 		if (!app.broker.BeginTest(app.sid, challenge, error)) { Error(app.window, error); return false; }
+		Progress(app.window, L"Finding registered USB security keys...");
 		auto devices = FIDODevice::GetDevices();
 		auto selected = ChooseDevice(app.window, devices, L"Choose a registered key to test.");
 		if (!selected) return false;
@@ -405,13 +537,13 @@ namespace
 		if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size());
 		if (!signedOk) return false;
 		if (!app.broker.FinishAuthentication(challenge.sessionId, assertion, error)) { Error(app.window, error); return false; }
-		MessageBoxW(app.window, L"The security key is registered and valid.", L"Windows FIDO Logon", MB_OK | MB_ICONINFORMATION);
+		ShowMessage(app.window, L"The security key is registered and valid.", L"Windows FIDO Logon", MB_OK | MB_ICONINFORMATION);
 		return Refresh(app);
 	}
 
-	bool RemoveKey(AppState& app)
+	bool RemoveKey(Operation& app)
 	{
-		const LRESULT selectedItem = SendMessageW(app.list, LB_GETCURSEL, 0, 0);
+		const LRESULT selectedItem = app.selectedItem;
 		if (selectedItem == LB_ERR || static_cast<size_t>(selectedItem) >= app.status.credentials.size())
 		{
 			Error(app.window, L"Select a security key to remove."); return false;
@@ -438,8 +570,9 @@ namespace
 		return Refresh(app);
 	}
 
-	void ElevatePolicyChange(AppState& app, bool enabled)
+	void ChangePolicy(Operation& app, bool enabled)
 	{
+		if (!Refresh(app) || app.status.enforced == enabled) return;
 		if (enabled && app.status.credentials.empty())
 		{
 			Error(app.window, L"Register at least one security key before enabling MFA.");
@@ -448,7 +581,7 @@ namespace
 		bool allowFilterConflict = false;
 		if (enabled && app.status.credentials.size() == 1)
 		{
-			const int answer = MessageBoxW(app.window,
+			const int answer = ShowMessage(app.window,
 				L"Only one security key is registered. If it is lost or damaged, you may be locked out.\r\n\r\nDo you want to enable MFA anyway?",
 				L"Enable MFA with one key", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
 			if (answer != IDYES) return;
@@ -460,17 +593,34 @@ namespace
 				const std::wstring warning = L"Another Credential Provider Filter is registered:\r\n" + conflict->name +
 					L"\r\n" + conflict->clsid +
 					L"\r\n\r\nMultiple filters may hide sign-in tiles unexpectedly. Continue and enable MFA anyway?";
-				if (MessageBoxW(app.window, warning.c_str(), L"Credential Provider Filter conflict", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+				if (ShowMessage(app.window, warning, L"Credential Provider Filter conflict", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
 					return;
 				allowFilterConflict = true;
 			}
 		}
-		wchar_t executable[MAX_PATH]{};
-		GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
-		const std::wstring parameters = L"--set-enforcement \"" + app.sid + L"\" " + (enabled ? L"1" : L"0") +
-			(allowFilterConflict ? L" 1" : L" 0");
-		if (reinterpret_cast<INT_PTR>(ShellExecuteW(app.window, L"runas", executable, parameters.c_str(), nullptr, SW_SHOWNORMAL)) <= 32)
-			Error(app.window, L"Administrator elevation was cancelled or failed.");
+		Progress(app.window, enabled ? L"Enabling MFA..." : L"Disabling MFA...");
+		std::wstring error;
+		if (!app.broker.SetEnforcement(app.sid, enabled, error, allowFilterConflict)) { Error(app.window, error); return; }
+		Refresh(app);
+	}
+
+	void DispatchCommand(AppState& app, int id)
+	{
+		if (app.busy || app.closePending) return;
+		HWND button = GetDlgItem(app.window, id);
+		if (!button || !IsWindowEnabled(button)) return;
+		auto operation = std::make_shared<Operation>(app);
+		StartOperation(app, [operation, id] {
+			switch (id)
+			{
+			case IDC_ADD_KEY: AddKey(*operation); break;
+			case IDC_TEST_KEY: TestKey(*operation); break;
+			case IDC_REMOVE_KEY: RemoveKey(*operation); break;
+			case IDC_ENABLE: ChangePolicy(*operation, true); break;
+			case IDC_DISABLE: ChangePolicy(*operation, false); break;
+			case IDC_REFRESH: Refresh(*operation); break;
+			}
+		});
 	}
 
 	LRESULT CALLBACK MainWindow(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -484,6 +634,18 @@ namespace
 		}
 		switch (message)
 		{
+		case WM_UI_CALL:
+			if (!app->closePending) (*reinterpret_cast<const std::function<void()>*>(lParam))();
+			return 0;
+		case WM_OPERATION_DONE:
+			if (app->worker.joinable()) app->worker.join();
+			SetBusy(*app, false);
+			SetWindowTextW(app->progress, L"");
+			if (app->closePending) DestroyWindow(window);
+			return 0;
+		case WM_INITIAL_REFRESH:
+			DispatchCommand(*app, IDC_REFRESH);
+			return 0;
 		case WM_CREATE:
 		{
 			app->subtitle = CreateWindowW(L"STATIC", L"Loading account status...", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window, nullptr, nullptr, nullptr);
@@ -495,19 +657,20 @@ namespace
 			app->enableButton = CreateWindowW(L"BUTTON", L"Enable MFA", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_NOTIFY, 0, 0, 0, 0, window, ControlId(IDC_ENABLE), nullptr, nullptr);
 			app->disableButton = CreateWindowW(L"BUTTON", L"Disable MFA", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_NOTIFY, 0, 0, 0, 0, window, ControlId(IDC_DISABLE), nullptr, nullptr);
 			app->refreshButton = CreateWindowW(L"BUTTON", L"Refresh", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_NOTIFY, 0, 0, 0, 0, window, ControlId(IDC_REFRESH), nullptr, nullptr);
-			app->logo = LoadIconW(reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(window, GWLP_HINSTANCE)), MAKEINTRESOURCEW(IDI_APP_ICON));
+			app->progress = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_ENDELLIPSIS, 0, 0, 0, 0, window, nullptr, nullptr, nullptr);
 			ApplyWindowFonts(*app);
 			RECT client{};
 			GetClientRect(window, &client);
 			LayoutMainWindow(*app, client.right, client.bottom);
-			Refresh(*app);
+			SetBusy(*app, false);
+			PostMessageW(window, WM_INITIAL_REFRESH, 0, 0);
 			return 0;
 		}
 		case WM_GETMINMAXINFO:
 		{
 			auto info = reinterpret_cast<MINMAXINFO*>(lParam);
 			info->ptMinTrackSize.x = Scale(window, 680);
-			info->ptMinTrackSize.y = Scale(window, 430);
+			info->ptMinTrackSize.y = Scale(window, 520);
 			return 0;
 		}
 		case WM_SIZE:
@@ -544,38 +707,48 @@ namespace
 			SetBkMode(dc, TRANSPARENT);
 			SetTextColor(dc, RGB(255, 255, 255));
 			HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(dc, app->titleFont));
-			RECT titleRect{ Scale(window, 86), Scale(window, 18), client.right - Scale(window, 24), Scale(window, 52) };
+			RECT titleRect{ Scale(window, 24), Scale(window, 18), client.right - Scale(window, 24), Scale(window, 52) };
 			DrawTextW(dc, L"Windows FIDO Logon", -1, &titleRect, DT_SINGLELINE | DT_VCENTER);
-			SelectObject(dc, oldFont);
+			SelectObject(dc, app->uiFont);
 			SetTextColor(dc, RGB(189, 212, 239));
-			RECT hintRect{ Scale(window, 86), Scale(window, 54), client.right - Scale(window, 24), Scale(window, 82) };
+			RECT hintRect{ Scale(window, 24), Scale(window, 54), client.right - Scale(window, 24), Scale(window, 82) };
 			DrawTextW(dc, L"Password plus a USB security key, protected locally", -1, &hintRect, DT_SINGLELINE | DT_VCENTER);
-			if (app->logo)
-				DrawIconEx(dc, Scale(window, 24), Scale(window, 24), app->logo, Scale(window, 48), Scale(window, 48), 0, nullptr, DI_NORMAL);
+			SelectObject(dc, oldFont);
 			EndPaint(window, &paint);
 			return 0;
 		}
 		case WM_CTLCOLORSTATIC:
 			SetBkMode(reinterpret_cast<HDC>(wParam), TRANSPARENT);
 			SetTextColor(reinterpret_cast<HDC>(wParam), reinterpret_cast<HWND>(lParam) == app->subtitle ? RGB(189, 212, 239) : RGB(74, 85, 104));
-			return reinterpret_cast<LRESULT>(GetStockObject(NULL_BRUSH));
+			{
+				const bool header = reinterpret_cast<HWND>(lParam) == app->subtitle;
+				SetDCBrushColor(reinterpret_cast<HDC>(wParam), header ? RGB(20, 45, 78) : RGB(247, 249, 252));
+				return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
+			}
+		case WM_CLOSE:
+			if (app->busy)
+			{
+				app->closePending = true;
+				SetWindowTextW(app->progress, L"Closing after the current operation finishes...");
+				return 0;
+			}
+			DestroyWindow(window);
+			return 0;
 		case WM_DESTROY:
 			if (app->uiFont) DeleteObject(app->uiFont);
 			if (app->titleFont) DeleteObject(app->titleFont);
-			if (app->logo) DestroyIcon(app->logo);
 			PostQuitMessage(0); return 0;
 		case WM_COMMAND:
-			if (HIWORD(wParam) != 0 && HIWORD(wParam) != BN_CLICKED) return 0;
-			if (app->busy) return 0;
-			switch (LOWORD(wParam))
+			if (LOWORD(wParam) == IDC_KEYS && HIWORD(wParam) == LBN_SELCHANGE)
 			{
-			case IDC_ADD_KEY: SetBusy(*app, true); AddKey(*app); SetBusy(*app, false); break;
-			case IDC_TEST_KEY: SetBusy(*app, true); TestKey(*app); SetBusy(*app, false); break;
-			case IDC_REMOVE_KEY: SetBusy(*app, true); RemoveKey(*app); SetBusy(*app, false); break;
-			case IDC_ENABLE: SetBusy(*app, true); ElevatePolicyChange(*app, true); SetBusy(*app, false); break;
-			case IDC_DISABLE: SetBusy(*app, true); ElevatePolicyChange(*app, false); SetBusy(*app, false); break;
-			case IDC_REFRESH: SetBusy(*app, true); Refresh(*app); SetBusy(*app, false); break;
+				SetBusy(*app, app->busy);
+				return 0;
 			}
+			// BS_NOTIFY also sends focus/double-click notifications. Only a real
+			// click from the expected button may start a workflow.
+			if (HIWORD(wParam) != BN_CLICKED || !lParam ||
+				reinterpret_cast<HWND>(lParam) != GetDlgItem(window, LOWORD(wParam))) return 0;
+			DispatchCommand(*app, LOWORD(wParam));
 			return 0;
 		}
 		return DefWindowProcW(window, message, wParam, lParam);
@@ -584,19 +757,6 @@ namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
 {
-	int argc = 0;
-	LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-	if (argc >= 4 && argc <= 5 && _wcsicmp(argv[1], L"--set-enforcement") == 0)
-	{
-		localfido::BrokerClient broker;
-		std::wstring error;
-		const bool allowFilterConflict = argc == 5 && wcstol(argv[4], nullptr, 10) != 0;
-		const bool ok = broker.SetEnforcement(argv[2], wcstol(argv[3], nullptr, 10) != 0, error, allowFilterConflict);
-		LocalFree(argv);
-		MessageBoxW(nullptr, ok ? L"MFA policy was updated." : error.c_str(), L"Windows FIDO Logon", ok ? MB_ICONINFORMATION : MB_ICONERROR);
-		return ok ? 0 : 1;
-	}
-	if (argv) LocalFree(argv);
 
 	AppState app;
 	DWORD errorCode = ERROR_SUCCESS;
@@ -614,12 +774,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
 	cls.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_APP_ICON));
 	cls.lpszClassName = L"WindowsFidoLogonManager";
 	if (!RegisterClassW(&cls)) return 1;
-	HWND window = CreateWindowExW(WS_EX_APPWINDOW, cls.lpszClassName, L"Windows FIDO Logon", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME,
-		CW_USEDEFAULT, CW_USEDEFAULT, 760, 540, nullptr, nullptr, instance, &app);
+	HWND window = CreateWindowExW(WS_EX_APPWINDOW | WS_EX_CONTROLPARENT, cls.lpszClassName, L"Windows FIDO Logon",
+		WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME | WS_CLIPCHILDREN,
+		CW_USEDEFAULT, CW_USEDEFAULT, MulDiv(760, GetDpiForSystem(), 96), MulDiv(560, GetDpiForSystem(), 96), nullptr, nullptr, instance, &app);
 	if (!window) return 1;
 	ShowWindow(window, show);
 	UpdateWindow(window);
 	MSG message{};
-	while (GetMessageW(&message, nullptr, 0, 0) > 0) { TranslateMessage(&message); DispatchMessageW(&message); }
+	while (GetMessageW(&message, nullptr, 0, 0) > 0)
+	{
+		if (!IsDialogMessageW(window, &message)) { TranslateMessage(&message); DispatchMessageW(&message); }
+	}
 	return static_cast<int>(message.wParam);
 }

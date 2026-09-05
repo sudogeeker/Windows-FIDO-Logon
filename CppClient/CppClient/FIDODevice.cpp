@@ -55,6 +55,8 @@ namespace
 	{
 		DevicePtr device(fido_dev_new());
 		if (!device) { status = FIDO_ERR_INTERNAL; return {}; }
+		status = fido_dev_set_timeout(device.get(), 5000);
+		if (status != FIDO_OK) return {};
 		status = fido_dev_open(device.get(), path.c_str());
 		if (status != FIDO_OK) return {};
 		return device;

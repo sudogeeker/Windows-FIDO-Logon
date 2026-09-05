@@ -6,6 +6,7 @@
 #include "FIDODevice.h"
 #include "helpers.h"
 #include "scenario.h"
+#include "LocalAccount.h"
 
 #include <credentialprovider.h>
 #include <memory>
@@ -82,7 +83,9 @@ private:
 	localfido::BrokerClient _broker;
 	std::optional<localfido::AuthenticationChallenge> _challenge;
 	std::vector<FIDODevice> _devices;
+	std::vector<localfido::LocalAccountInfo> _users;
 	DWORD _selectedDevice = 0;
+	DWORD _selectedUser = 0;
 	std::wstring _sid;
 	bool _mfaComplete = false;
 	bool _passwordChangeAuthorized = false;

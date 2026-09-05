@@ -2,9 +2,18 @@
 
 #include <Windows.h>
 #include <string>
+#include <vector>
 
 namespace localfido
 {
+	struct LocalAccountInfo
+	{
+		std::wstring username;
+		std::wstring computerName;
+		std::wstring sidString;
+	};
+
+	bool EnumerateLocalAccounts(std::vector<LocalAccountInfo>& accounts, DWORD* error = nullptr);
 	bool ResolveLocalAccount(
 		const std::wstring& input,
 		std::wstring& username,

@@ -1,4 +1,5 @@
 #include "BrokerClient.h"
+#include "BrokerPipeIo.h"
 
 #include "Convert.h"
 
@@ -114,7 +115,7 @@ bool localfido::BrokerClient::Call(const json& request, json& response, std::wst
 		error = L"Windows FIDO Logon Broker is unavailable.";
 		return false;
 	}
-	HANDLE pipe = CreateFileW(kBrokerPipeName, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+	HANDLE pipe = CreateFileW(kBrokerPipeName, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
 	if (pipe == INVALID_HANDLE_VALUE)
 	{
 		error = L"Unable to connect to Windows FIDO Logon Broker.";
@@ -151,7 +152,7 @@ bool localfido::BrokerClient::Call(const json& request, json& response, std::wst
 		return false;
 	}
 	DWORD written = 0;
-	if (!WriteFile(pipe, serialized.data(), static_cast<DWORD>(serialized.size()), &written, nullptr) || written != serialized.size())
+	if (!TransferBrokerMessage(pipe, serialized.data(), static_cast<DWORD>(serialized.size()), written, true) || written != serialized.size())
 	{
 		SecureZeroMemory(serialized.data(), serialized.size());
 		CloseHandle(pipe);
@@ -161,15 +162,16 @@ bool localfido::BrokerClient::Call(const json& request, json& response, std::wst
 	SecureZeroMemory(serialized.data(), serialized.size());
 	std::vector<char> buffer(kMaxBrokerMessageBytes);
 	DWORD read = 0;
-	if (!ReadFile(pipe, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr))
+	if (!TransferBrokerMessage(pipe, buffer.data(), static_cast<DWORD>(buffer.size()), read, false))
 	{
+		const bool timedOut = GetLastError() == ERROR_SEM_TIMEOUT;
 		CloseHandle(pipe);
-		error = L"Unable to read Broker response.";
+		error = timedOut ? L"The Broker did not respond within 15 seconds. Refresh account status before retrying." : L"Unable to read Broker response.";
 		return false;
 	}
-	const char acknowledgement = 1;
+	char acknowledgement = 1;
 	DWORD acknowledgementSize = 0;
-	(void)WriteFile(pipe, &acknowledgement, 1, &acknowledgementSize, nullptr);
+	(void)TransferBrokerMessage(pipe, &acknowledgement, 1, acknowledgementSize, true, 1000);
 	CloseHandle(pipe);
 	try
 	{

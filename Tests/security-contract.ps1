@@ -7,6 +7,7 @@ $compiled = @(
     Join-Path $root 'BrokerService\BrokerService.vcxproj'
     Join-Path $root 'Manager\Manager.vcxproj'
     Join-Path $root 'Tests\BrokerProtocolTests.vcxproj'
+    Join-Path $root 'Tests\ManagerUiTests.vcxproj'
     Join-Path $root 'Tests\FidoVerifierTests.vcxproj'
 )
 
@@ -73,10 +74,10 @@ $broker = Get-Content -LiteralPath (Join-Path $root 'BrokerService\BrokerService
 foreach ($required in @('kSessionLifetime', 'kMaximumSessions', 'kMaximumSessionsPerCaller', 'kPipeIoTimeoutMs', 'TakeSession', 'ImpersonateNamedPipeClient', 'FILE_FLAG_FIRST_PIPE_INSTANCE', 'FILE_FLAG_OVERLAPPED', 'PIPE_REJECT_REMOTE_CLIENTS', 'SecureZeroMemory', 'finish_registration', 'begin_remove', 'finish_remove', 'policy state is inconsistent')) {
     if ($broker -notmatch $required) { throw "Broker security contract missing: $required" }
 }
-foreach ($required in @('IsMicrosoftSignedSystemFilter', 'WinVerifyTrust', 'GetSystemDirectoryW', 'WTHelperGetProvSignerFromChain', 'CERT_NAME_ATTR_TYPE', 'Microsoft Corporation')) {
-    if ($broker -notmatch [regex]::Escape($required)) { throw "Windows-signed Credential Provider Filter validation missing: $required" }
+if ($runtimeText -match 'WinVerifyTrust|WTHelper|(?i)wintrust\.lib') {
+    throw 'Runtime Credential Provider Filter inspection must not perform Authenticode validation.'
 }
-if ($broker -match 'kWindowsGenericFilter') { throw 'Credential Provider Filter detection must not hardcode a Windows Filter GUID' }
+if ($broker -notmatch 'localfido::IsWindowsGenericFilter') { throw 'Broker must use shared built-in Filter recognition.' }
 
 $filter = Get-Content -LiteralPath (Join-Path $root 'CredentialProviderFilter\CCredentialProviderFilter.cpp') -Raw
 foreach ($required in @('allowed[index] = FALSE', 'never restore TRUE')) {

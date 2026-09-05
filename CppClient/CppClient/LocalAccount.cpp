@@ -61,6 +61,38 @@ namespace
 	}
 }
 
+bool localfido::EnumerateLocalAccounts(std::vector<LocalAccountInfo>& accounts, DWORD* error)
+{
+	accounts.clear();
+	const std::wstring computerName = ComputerName();
+	if (computerName.empty())
+	{
+		if (error) *error = GetLastError();
+		return false;
+	}
+	LPUSER_INFO_1 users = nullptr;
+	DWORD entriesRead = 0, totalEntries = 0, resume = 0;
+	NET_API_STATUS status = NERR_Success;
+	do
+	{
+		status = NetUserEnum(nullptr, 1, FILTER_NORMAL_ACCOUNT, reinterpret_cast<LPBYTE*>(&users),
+			MAX_PREFERRED_LENGTH, &entriesRead, &totalEntries, &resume);
+		if (status != NERR_Success && status != ERROR_MORE_DATA) break;
+		for (DWORD index = 0; index < entriesRead; ++index)
+		{
+			const auto& user = users[index];
+			if (!user.usri1_name || !*user.usri1_name || (user.usri1_flags & UF_ACCOUNTDISABLE)) continue;
+			LocalAccountInfo account;
+		if (ResolveLocalAccount(user.usri1_name, account.username, account.computerName, account.sidString))
+				accounts.push_back(std::move(account));
+		}
+		if (users) { NetApiBufferFree(users); users = nullptr; }
+	} while (status == ERROR_MORE_DATA);
+	if (users) NetApiBufferFree(users);
+	if (error) *error = status;
+	return status == NERR_Success && !accounts.empty();
+}
+
 bool localfido::ResolveLocalAccount(
 	const std::wstring& input,
 	std::wstring& username,

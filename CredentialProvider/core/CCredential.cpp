@@ -9,6 +9,7 @@
 #include "LocalAccount.h"
 #include "LocalCredentialStore.h"
 #include "Logger.h"
+#include "Localization.h"
 #include "Mode.h"
 #include "guid.h"
 #include "resource.h"
@@ -81,11 +82,29 @@ HRESULT CCredential::Initialize(const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* desc
 	_configuration->credential.username = username ? username : L"";
 	_configuration->credential.domain = domain ? domain : L"";
 	_configuration->credential.password = password ? password : L"";
-	ReplaceFieldString(_strings[FID_LARGE_TEXT], L"Windows FIDO Logon");
-	ReplaceFieldString(_strings[FID_SMALL_TEXT], L"Enter a local account password.");
+	localfido::EnumerateLocalAccounts(_users);
+	if (!_configuration->credential.username.empty())
+	{
+		for (DWORD index = 0; index < _users.size(); ++index)
+		{
+			if (_wcsicmp(_users[index].username.c_str(), _configuration->credential.username.c_str()) == 0)
+			{
+				_selectedUser = index;
+				break;
+			}
+		}
+	}
+	else if (!_users.empty())
+	{
+		_selectedUser = 0;
+		_configuration->credential.username = _users.front().username;
+		_configuration->credential.domain = _users.front().computerName;
+	}
+	ReplaceFieldString(_strings[FID_LARGE_TEXT], UiText(UiTextId::Title));
+	ReplaceFieldString(_strings[FID_SMALL_TEXT], UiText(UiTextId::SelectUserAndPassword));
 	ReplaceFieldString(_strings[FID_USERNAME], _configuration->credential.username.c_str());
 	ReplaceFieldString(_strings[FID_PASSWORD], _configuration->credential.password.c_str());
-	ReplaceFieldString(_strings[FID_SUBMIT_BUTTON], L"Sign in");
+	ReplaceFieldString(_strings[FID_SUBMIT_BUTTON], UiText(UiTextId::ContinueButton));
 	return S_OK;
 }
 
@@ -141,7 +160,14 @@ HRESULT CCredential::GetBitmapValue(DWORD field, HBITMAP* bitmap)
 
 HRESULT CCredential::GetComboBoxValueCount(DWORD field, DWORD* count, DWORD* selected)
 {
-	if (field != FID_DEVICE_SELECT || !count || !selected) return E_INVALIDARG;
+	if (!count || !selected) return E_INVALIDARG;
+	if (field == FID_USERNAME)
+	{
+		*count = static_cast<DWORD>(_users.size());
+		*selected = _selectedUser < _users.size() ? _selectedUser : 0;
+		return S_OK;
+	}
+	if (field != FID_DEVICE_SELECT) return E_INVALIDARG;
 	*count = static_cast<DWORD>(_devices.size());
 	*selected = _selectedDevice < _devices.size() ? _selectedDevice : 0;
 	return S_OK;
@@ -149,7 +175,13 @@ HRESULT CCredential::GetComboBoxValueCount(DWORD field, DWORD* count, DWORD* sel
 
 HRESULT CCredential::GetComboBoxValueAt(DWORD field, DWORD item, PWSTR* value)
 {
-	if (field != FID_DEVICE_SELECT || !value || item >= _devices.size()) return E_INVALIDARG;
+	if (!value) return E_INVALIDARG;
+	if (field == FID_USERNAME)
+	{
+		if (item >= _users.size()) return E_INVALIDARG;
+		return SHStrDupW(_users[item].username.c_str(), value);
+	}
+	if (field != FID_DEVICE_SELECT || item >= _devices.size()) return E_INVALIDARG;
 	return SHStrDupW(Convert::ToWString(_devices[item].ToString()).c_str(), value);
 }
 
@@ -182,6 +214,16 @@ HRESULT CCredential::SetStringValue(DWORD field, PCWSTR value)
 
 HRESULT CCredential::SetComboBoxSelectedValue(DWORD field, DWORD selected)
 {
+	if (field == FID_USERNAME)
+	{
+		if (selected >= _users.size()) return E_INVALIDARG;
+		_selectedUser = selected;
+		_configuration->credential.username = _users[selected].username;
+		_configuration->credential.domain = _users[selected].computerName;
+		_sid = _users[selected].sidString;
+		ResetMfa();
+		return S_OK;
+	}
 	if (field != FID_DEVICE_SELECT || selected >= _devices.size()) return E_INVALIDARG;
 	_selectedDevice = selected;
 	return S_OK;
@@ -210,6 +252,10 @@ HRESULT CCredential::SetMode(Mode mode)
 			_events->SetFieldInteractiveState(this, index, _states[index].cpfis);
 		}
 	}
+	const PCWSTR submitLabel = mode == Mode::FIDO ? UiText(UiTextId::VerifyKeyButton) :
+		(mode == Mode::CHANGE_PASSWORD ? UiText(UiTextId::ChangePasswordButton) : UiText(UiTextId::ContinueButton));
+	ReplaceFieldString(_strings[FID_SUBMIT_BUTTON], submitLabel);
+	if (_events) _events->SetFieldString(this, FID_SUBMIT_BUTTON, submitLabel);
 	return S_OK;
 }
 
@@ -231,7 +277,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 		return _passwordChangeAuthorized ? S_OK : E_ACCESSDENIED;
 	if (_configuration->credential.username.empty() || _configuration->credential.password.empty())
 	{
-		SetStatus(L"A local username and Windows password are required.", query);
+		SetStatus(UiText(UiTextId::SelectUserAndPasswordPrompt), query);
 		return E_INVALIDARG;
 	}
 
@@ -241,7 +287,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 		DWORD accountError = ERROR_SUCCESS;
 		if (!localfido::ResolveLocalAccount(_configuration->credential.username, username, computer, sid, &accountError))
 		{
-			SetStatus(L"Only local SAM accounts are supported.", query);
+			SetStatus(UiText(UiTextId::LocalAccountsOnly), query);
 			return HRESULT_FROM_WIN32(accountError);
 		}
 		_configuration->credential.username = username;
@@ -253,7 +299,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 		{
 			if (localfido::LocalCredentialStore::IsSidEnforced(sid))
 			{
-				SetStatus(L"MFA is enforced and the local Broker is unavailable. Sign-in is blocked.", query);
+				SetStatus(UiText(UiTextId::MfaServiceUnavailable), query);
 				return E_ACCESSDENIED;
 			}
 			_mfaComplete = true;
@@ -263,10 +309,11 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 		{
 			if (localfido::LocalCredentialStore::IsSidEnforced(sid))
 			{
-				SetStatus(L"MFA policy state is inconsistent. Sign-in is blocked.", query);
+				SetStatus(UiText(UiTextId::MfaPolicyUnavailable), query);
 				return E_ACCESSDENIED;
 			}
 			_mfaComplete = true;
+			SetStatus(UiText(UiTextId::PasswordAccepted), query);
 			return S_OK;
 		}
 		_challenge = std::move(challenge);
@@ -274,20 +321,23 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 		if (_devices.empty())
 		{
 			ResetMfa();
-			SetStatus(L"Insert a registered CTAP2 USB security key. Sign-in is blocked.", query);
+			SetStatus(UiText(UiTextId::NoRegisteredKey), query);
 			return HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_AVAILABLE);
 		}
 		if (_devices.size() > 1 || _devices.front().HasPin())
 		{
 			SetMode(Mode::FIDO);
-			SetStatus(_devices.size() > 1 ? L"Select a USB security key, enter its PIN, then touch it."
-				: L"Enter the security-key PIN, then touch the key.", query);
-			return E_FAIL;
+			SetStatus(_devices.size() > 1 ? UiText(UiTextId::SelectKeyAndTouch)
+				: UiText(UiTextId::EnterPinAndTouch), query);
+			// A successful Connect lets LogonUI keep the newly displayed PIN fields.
+			// GetSerialization will intentionally return NO_CREDENTIAL_NOT_FINISHED
+			// until the security-key ceremony completes.
+			return S_OK;
 		}
 	}
 
 	if (_selectedDevice >= _devices.size()) _selectedDevice = 0;
-	SetStatus(L"Touch the USB security key to approve this sign-in.", query);
+	SetStatus(UiText(UiTextId::TouchKey), query);
 	std::string pin = Convert::ToString(_configuration->credential.fidoPin);
 	FIDOSignResponse assertion;
 	const int fidoStatus = _devices[_selectedDevice].Sign(_challenge->request, _challenge->origin, pin, assertion);
@@ -296,7 +346,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 	{
 		ResetMfa();
 		SetMode(Mode::USERNAME_PASSWORD);
-		SetStatus(L"Security-key verification failed. A new MFA attempt is required.", query);
+		SetStatus(UiText(UiTextId::KeyVerificationFailed), query);
 		return E_ACCESSDENIED;
 	}
 	std::wstring brokerError;
@@ -304,12 +354,12 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 	{
 		ResetMfa();
 		SetMode(Mode::USERNAME_PASSWORD);
-		SetStatus(L"The Broker rejected the security-key assertion. A new MFA attempt is required.", query);
+		SetStatus(UiText(UiTextId::KeyServiceRejected), query);
 		return E_ACCESSDENIED;
 	}
 	_mfaComplete = true;
 	_challenge.reset();
-	SetStatus(L"Security key verified. Signing in…", query);
+	SetStatus(UiText(UiTextId::KeyVerified), query);
 	return S_OK;
 }
 
@@ -381,15 +431,16 @@ HRESULT CCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESP
 		const HRESULT status = PackPasswordChange(response, serialization);
 		if (FAILED(status))
 		{
-			SHStrDupW(L"The new passwords must match and may not be empty.", statusText);
+			SHStrDupW(UiText(UiTextId::PasswordsMismatch), statusText);
 			*statusIcon = CPSI_ERROR;
 		}
 		return S_OK;
 	}
 	if (!_mfaComplete)
 	{
-		SHStrDupW(L"Complete local security-key verification before signing in.", statusText);
-		*statusIcon = CPSI_ERROR;
+		// The first password submission only changes the visible fields to the
+		// PIN/key ceremony. Do not surface it as an error or require a second
+		// confirmation click.
 		return S_OK;
 	}
 	return PackLogon(response, serialization);
@@ -417,8 +468,8 @@ HRESULT CCredential::ReportResult(NTSTATUS status, NTSTATUS substatus, PWSTR* st
 		_passwordChangeAuthorized = _mfaComplete;
 		_mfaComplete = false;
 		SetMode(Mode::CHANGE_PASSWORD);
-		SetStatus(L"Your Windows password must be changed. Enter a new password twice.");
-		SHStrDupW(L"Your Windows password must be changed.", statusText);
+		SetStatus(UiText(UiTextId::PasswordMustChange));
+		SHStrDupW(UiText(UiTextId::PasswordMustChange), statusText);
 		*statusIcon = CPSI_WARNING;
 		return S_OK;
 	}
@@ -428,8 +479,8 @@ HRESULT CCredential::ReportResult(NTSTATUS status, NTSTATUS substatus, PWSTR* st
 	ReplaceFieldString(_strings[FID_PASSWORD], L"");
 	ReplaceFieldString(_strings[FID_NEW_PASS_1], L"");
 	ReplaceFieldString(_strings[FID_NEW_PASS_2], L"");
-	SetStatus(L"Windows rejected the password. Complete a new password + security-key attempt.");
-	SHStrDupW(L"Sign-in failed. Re-enter the password and complete MFA again.", statusText);
+	SetStatus(UiText(UiTextId::PasswordRejected));
+	SHStrDupW(UiText(UiTextId::SignInFailed), statusText);
 	*statusIcon = CPSI_ERROR;
 	return S_OK;
 }
@@ -444,6 +495,6 @@ HRESULT CCredential::FullReset()
 	ReplaceFieldString(_strings[FID_NEW_PASS_1], L"");
 	ReplaceFieldString(_strings[FID_NEW_PASS_2], L"");
 	SetMode(Mode::USERNAME_PASSWORD);
-	SetStatus(L"Enter a local account password.");
+	SetStatus(UiText(UiTextId::SelectUserAndPassword));
 	return S_OK;
 }

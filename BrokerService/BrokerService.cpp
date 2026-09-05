@@ -1,6 +1,7 @@
 #include "BrokerService.h"
 
 #include "Convert.h"
+#include "CredentialProviderFilters.h"
 #include "FidoVerifier.h"
 #include "LocalAccount.h"
 #include "LocalFidoTypes.h"
@@ -8,9 +9,6 @@
 #include <Windows.h>
 #include <Sddl.h>
 #include <bcrypt.h>
-#include <Softpub.h>
-#include <Wintrust.h>
-#include <wincrypt.h>
 #include <algorithm>
 #include <cstdio>
 #include <iomanip>
@@ -22,7 +20,6 @@
 #include <vector>
 
 #pragma comment(lib, "Bcrypt.lib")
-#pragma comment(lib, "Wintrust.lib")
 
 using json = nlohmann::json;
 
@@ -144,104 +141,6 @@ namespace
 		return _wcsicmp(left.c_str(), right.c_str()) == 0;
 	}
 
-	bool ReadRegistryString(HKEY root, const std::wstring& subKey, std::wstring& value)
-	{
-		HKEY key = nullptr;
-		const LONG openStatus = RegOpenKeyExW(root, subKey.c_str(), 0,
-			KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key);
-		if (openStatus != ERROR_SUCCESS) return false;
-		DWORD type = 0;
-		DWORD byteCount = 0;
-		LONG status = RegQueryValueExW(key, nullptr, nullptr, &type, nullptr, &byteCount);
-		if (status != ERROR_SUCCESS || (type != REG_SZ && type != REG_EXPAND_SZ) || byteCount == 0)
-		{
-			RegCloseKey(key);
-			return false;
-		}
-		std::vector<wchar_t> buffer(byteCount / sizeof(wchar_t) + 1, L'\0');
-		status = RegQueryValueExW(key, nullptr, nullptr, &type,
-			reinterpret_cast<BYTE*>(buffer.data()), &byteCount);
-		RegCloseKey(key);
-		if (status != ERROR_SUCCESS) return false;
-		value.assign(buffer.data());
-		return !value.empty();
-	}
-
-	std::wstring ExpandAndNormalizePath(const std::wstring& rawPath)
-	{
-		DWORD expandedLength = ExpandEnvironmentStringsW(rawPath.c_str(), nullptr, 0);
-		if (expandedLength == 0) return {};
-		std::vector<wchar_t> expandedBuffer(expandedLength, L'\0');
-		if (ExpandEnvironmentStringsW(rawPath.c_str(), expandedBuffer.data(), expandedLength) == 0) return {};
-
-		std::vector<wchar_t> fullPathBuffer(32768, L'\0');
-		const DWORD fullPathLength = GetFullPathNameW(expandedBuffer.data(),
-			static_cast<DWORD>(fullPathBuffer.size()), fullPathBuffer.data(), nullptr);
-		if (fullPathLength == 0 || fullPathLength >= fullPathBuffer.size()) return {};
-		return std::wstring(fullPathBuffer.data(), fullPathLength);
-	}
-
-	bool IsMicrosoftSignedSystemFile(const std::wstring& path)
-	{
-		WINTRUST_FILE_INFO fileInfo{};
-		fileInfo.cbStruct = sizeof(fileInfo);
-		fileInfo.pcwszFilePath = path.c_str();
-		WINTRUST_DATA trustData{};
-		trustData.cbStruct = sizeof(trustData);
-		trustData.dwUIChoice = WTD_UI_NONE;
-		trustData.fdwRevocationChecks = WTD_REVOKE_NONE;
-		trustData.dwUnionChoice = WTD_CHOICE_FILE;
-		trustData.pFile = &fileInfo;
-		trustData.dwStateAction = WTD_STATEACTION_VERIFY;
-		GUID policy = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-		const LONG verifyStatus = WinVerifyTrust(nullptr, &policy, &trustData);
-		bool microsoftPublisher = false;
-		if (verifyStatus == ERROR_SUCCESS)
-		{
-			if (CRYPT_PROVIDER_DATA* providerData = WTHelperProvDataFromStateData(trustData.hWVTStateData))
-			{
-				if (CRYPT_PROVIDER_SGNR* signer = WTHelperGetProvSignerFromChain(providerData, 0, FALSE, 0))
-				{
-					if (CRYPT_PROVIDER_CERT* certificate = WTHelperGetProvCertFromChain(signer, 0))
-					{
-						wchar_t organization[256]{};
-						const DWORD nameLength = CertGetNameStringW(certificate->pCert,
-							CERT_NAME_ATTR_TYPE, 0, const_cast<char*>(szOID_ORGANIZATION_NAME),
-							organization, ARRAYSIZE(organization));
-						microsoftPublisher = nameLength > 1 && _wcsicmp(organization, L"Microsoft Corporation") == 0;
-					}
-				}
-			}
-		}
-		trustData.dwStateAction = WTD_STATEACTION_CLOSE;
-		WinVerifyTrust(nullptr, &policy, &trustData);
-		return microsoftPublisher;
-	}
-
-	bool IsMicrosoftSignedSystemFilter(const std::wstring& filterClsid)
-	{
-		wchar_t systemDirectoryBuffer[MAX_PATH]{};
-		const UINT systemDirectoryLength = GetSystemDirectoryW(systemDirectoryBuffer, ARRAYSIZE(systemDirectoryBuffer));
-		if (systemDirectoryLength == 0 || systemDirectoryLength >= ARRAYSIZE(systemDirectoryBuffer)) return false;
-		const std::wstring systemDirectory(systemDirectoryBuffer, systemDirectoryLength);
-		std::wstring rawServerPath;
-		if (!ReadRegistryString(HKEY_CLASSES_ROOT,
-			L"CLSID\\" + filterClsid + L"\\InprocServer32", rawServerPath)) return false;
-		if (rawServerPath.size() >= 2 && rawServerPath.front() == L'"' && rawServerPath.back() == L'"')
-			rawServerPath = rawServerPath.substr(1, rawServerPath.size() - 2);
-		std::wstring candidatePath = rawServerPath;
-		if (rawServerPath.find_first_of(L"\\/:") == std::wstring::npos)
-			candidatePath = systemDirectory + L"\\" + rawServerPath;
-		candidatePath = ExpandAndNormalizePath(candidatePath);
-		const std::wstring normalizedSystemDirectory = ExpandAndNormalizePath(systemDirectory);
-		if (candidatePath.empty() || normalizedSystemDirectory.empty()) return false;
-		std::wstring systemPrefix = normalizedSystemDirectory;
-		if (systemPrefix.back() != L'\\') systemPrefix.push_back(L'\\');
-		if (candidatePath.size() <= systemPrefix.size() ||
-			_wcsnicmp(candidatePath.c_str(), systemPrefix.c_str(), systemPrefix.size()) != 0)
-			return false;
-		return IsMicrosoftSignedSystemFile(candidatePath);
-	}
 
 	bool HasConflictingCredentialProviderFilter(std::wstring& conflictingClsid, DWORD& error)
 	{
@@ -266,7 +165,7 @@ namespace
 				return false;
 			}
 			if (status == ERROR_SUCCESS && _wcsicmp(name, kOurFilter) != 0 &&
-				!IsMicrosoftSignedSystemFilter(name))
+				!localfido::IsWindowsGenericFilter(name))
 			{
 				conflictingClsid.assign(name, length);
 				RegCloseKey(key);
