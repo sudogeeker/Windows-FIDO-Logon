@@ -5,7 +5,7 @@
 1. LogonUI lets the user choose a local account from an embedded list and enter its Windows password in the custom Credential Provider.
 2. The provider resolves the account through local SAM APIs and obtains its SID. UPN and non-local domain syntax are rejected.
 3. The provider asks the LocalSystem Broker for a one-use authentication challenge over the local Named Pipe.
-4. If the SID is not enforced, the provider immediately serializes the password for Windows LSA.
+4. If the SID is not enforced, the provider immediately serializes the password for Windows LSA. The Credential Provider Filter hides this provider while enforcement is disabled so the system's native password provider remains the only local sign-in option.
 5. If enforced, the provider enumerates only CTAP2 ES256 USB HID devices, allows device selection, requests PIN/user verification and touch, and returns the assertion to the Broker. The first password submission transitions directly to this step without a second confirmation click.
 6. The Broker validates the session owner, 120-second expiry, challenge, HTTPS origin, RP ID hash, UP, UV, credential/SID ownership, ES256 signature, and signature counter.
 7. Only after success does the provider serialize the original password to LSA. A Windows password error invalidates the FIDO state and requires a new ceremony.

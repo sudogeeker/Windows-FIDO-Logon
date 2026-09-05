@@ -26,6 +26,21 @@ namespace
 		return true;
 	}
 
+	bool IsHiddenFromLogonUi(const std::wstring& username)
+	{
+		constexpr wchar_t kSpecialAccountsPath[] = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\SpecialAccounts\\UserList";
+		HKEY key = nullptr;
+		const LONG openStatus = RegOpenKeyExW(HKEY_LOCAL_MACHINE, kSpecialAccountsPath, 0,
+			KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key);
+		if (openStatus != ERROR_SUCCESS) return false;
+		DWORD value = 0;
+		DWORD valueSize = sizeof(value);
+		const LONG readStatus = RegGetValueW(key, nullptr, username.c_str(), RRF_RT_REG_DWORD,
+			nullptr, &value, &valueSize);
+		RegCloseKey(key);
+		return readStatus == ERROR_SUCCESS && value == 0;
+	}
+
 	bool TokenIdentity(HANDLE token, std::wstring& username, std::wstring& sidString, DWORD* error)
 	{
 		DWORD size = 0;
@@ -81,9 +96,10 @@ bool localfido::EnumerateLocalAccounts(std::vector<LocalAccountInfo>& accounts, 
 		for (DWORD index = 0; index < entriesRead; ++index)
 		{
 			const auto& user = users[index];
-			if (!user.usri1_name || !*user.usri1_name || (user.usri1_flags & UF_ACCOUNTDISABLE)) continue;
+			if (!user.usri1_name || !*user.usri1_name || (user.usri1_flags & UF_ACCOUNTDISABLE) ||
+				!(user.usri1_flags & UF_NORMAL_ACCOUNT) || IsHiddenFromLogonUi(user.usri1_name)) continue;
 			LocalAccountInfo account;
-		if (ResolveLocalAccount(user.usri1_name, account.username, account.computerName, account.sidString))
+			if (ResolveLocalAccount(user.usri1_name, account.username, account.computerName, account.sidString))
 				accounts.push_back(std::move(account));
 		}
 		if (users) { NetApiBufferFree(users); users = nullptr; }

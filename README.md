@@ -9,7 +9,7 @@ There is no server, HTTP client, OTP, Push, telemetry, update checker, remote re
 - `FidoCore`: USB HID/CTAP2 device access, ES256 registration/assertion validation, local-account resolution, Broker client, and DPAPI vault.
 - `WindowsFidoLogonBroker`: LocalSystem service that owns challenges, SID authorization, signature counters, policy, and atomic vault writes.
 - `WindowsFidoLogonCredentialProvider`: Local Logon/Unlock password flow with fail-closed FIDO MFA for enforced SIDs.
-- `WindowsFidoLogonFilter`: Hides other tiles only for local Logon/Unlock while at least one SID is enforced.
+- `WindowsFidoLogonFilter`: Shows only the Windows FIDO Logon tile for local Logon/Unlock while at least one SID is enforced, and hides the Windows FIDO Logon tile when enforcement is disabled.
 - `WindowsFidoLogonManager`: Post-login UI for adding, testing, listing, and removing keys, and for elevated policy changes.
 
 Read [architecture](doc/architecture.md), [security boundary](doc/security-model.md), and the [test plan](doc/test-plan.md) before deploying it.

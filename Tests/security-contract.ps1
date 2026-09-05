@@ -83,11 +83,18 @@ $filter = Get-Content -LiteralPath (Join-Path $root 'CredentialProviderFilter\CC
 foreach ($required in @('allowed[index] = FALSE', 'never restore TRUE')) {
     if ($filter -notmatch [regex]::Escape($required)) { throw "Credential Provider Filter deny-only contract missing: $required" }
 }
+foreach ($required in @('_filterEnabled && !isOurProvider', '!_filterEnabled && isOurProvider')) {
+    if ($filter -notmatch [regex]::Escape($required)) { throw "Credential Provider enablement filter contract missing: $required" }
+}
 if ($filter -match 'allowed\[index\]\s*=\s*IsEqualGUID') { throw 'Credential Provider Filter must not overwrite shared allow decisions' }
 
 $client = Get-Content -LiteralPath (Join-Path $root 'CppClient\CppClient\BrokerClient.cpp') -Raw
 foreach ($required in @('GetNamedPipeServerProcessId', 'WinLocalSystemSid')) {
     if ($client -notmatch $required) { throw "Broker client trust contract missing: $required" }
+}
+$accounts = Get-Content -LiteralPath (Join-Path $root 'CppClient\CppClient\LocalAccount.cpp') -Raw
+foreach ($required in @('SpecialAccounts\\UserList', 'UF_ACCOUNTDISABLE', 'UF_NORMAL_ACCOUNT')) {
+    if ($accounts -notmatch [regex]::Escape($required)) { throw "Local account visibility contract missing: $required" }
 }
 
 $verifier = Get-Content -LiteralPath (Join-Path $root 'CppClient\CppClient\FidoVerifier.cpp') -Raw
