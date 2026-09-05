@@ -313,6 +313,23 @@ bool localfido::BrokerClient::FinishRemoval(const std::string& sessionId, const 
 	return Call({ {"op", "finish_remove"}, {"sessionId", sessionId}, {"assertion", AssertionToJson(authorization)} }, response, error);
 }
 
+bool localfido::BrokerClient::RemoveCredentialWithPassword(
+	const std::wstring& sid,
+	const std::wstring& username,
+	const std::wstring& password,
+	const std::string& credentialId,
+	std::wstring& error)
+{
+	json response;
+	json request = {
+		{"op", "remove_with_password"}, {"sid", Convert::ToString(sid)}, {"username", Convert::ToString(username)},
+		{"password", Convert::ToString(password)}, {"credentialId", credentialId}
+	};
+	const bool ok = Call(request, response, error);
+	ClearJsonSecret(request, "password");
+	return ok;
+}
+
 bool localfido::BrokerClient::SetEnforcement(const std::wstring& sid, bool enabled, std::wstring& error, bool allowFilterConflict)
 {
 	json response;

@@ -10,6 +10,7 @@
                   DowngradeErrorMessage="A newer Windows FIDO Logon version is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="ProductIcon.ico" SourceFile="$(var.SolutionDir)assets\key.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon.ico" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
     <!-- Windows Installer deliberately reports VersionNT/VersionNT64 as 603 on
          Windows 10 for compatibility, so those properties cannot distinguish

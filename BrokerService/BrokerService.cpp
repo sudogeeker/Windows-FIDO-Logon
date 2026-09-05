@@ -659,6 +659,33 @@ bool BrokerService::Handle(const Caller& caller, json& request, json& response)
 		return true;
 	}
 
+	if (operation == "remove_with_password")
+	{
+		const std::wstring sid = Convert::ToWString(request.at("sid").get<std::string>());
+		const std::wstring username = Convert::ToWString(request.at("username").get<std::string>());
+		std::wstring password = ExtractPassword(request);
+		if (!IsSameSid(caller.sid, sid))
+		{
+			SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t));
+			throw std::runtime_error("access denied");
+		}
+		std::wstring resolvedName, computer, resolvedSid;
+		const bool localAccount = localfido::ResolveLocalAccount(username, resolvedName, computer, resolvedSid) && IsSameSid(sid, resolvedSid);
+		const bool passwordOk = localAccount && localfido::ValidateLocalPassword(resolvedName, password);
+		SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t));
+		if (!passwordOk) throw std::runtime_error("Windows password validation failed");
+
+		auto account = _store.FindAccount(sid);
+		if (!account || account->credentials.empty()) throw std::runtime_error("account has no registered credentials");
+		if (account->enforced && account->credentials.size() <= 1) throw std::runtime_error("enforced accounts must retain at least one credential");
+		const std::string credentialId = request.at("credentialId").get<std::string>();
+		if (std::none_of(account->credentials.begin(), account->credentials.end(), [&](const localfido::CredentialRecord& item) { return item.credentialId == credentialId; }))
+			throw std::runtime_error("credential is not registered for this account");
+		if (!_store.RemoveCredential(sid, credentialId, &storeError)) throw std::runtime_error("unable to remove credential");
+		response = { {"ok", true} };
+		return true;
+	}
+
 	if (operation == "finish_remove")
 	{
 		Session session;

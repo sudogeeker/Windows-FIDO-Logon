@@ -550,23 +550,13 @@ namespace
 		}
 		std::wstring password;
 		if (!Prompt(app.window, L"Authorize removal", L"Enter your current Windows password:", true, password)) return false;
-		localfido::AuthenticationChallenge authorization;
 		std::wstring error;
-		if (!app.broker.BeginRemoval(app.sid, app.username, password,
-			app.status.credentials[static_cast<size_t>(selectedItem)].credentialId, authorization, error))
+		if (!app.broker.RemoveCredentialWithPassword(app.sid, app.username, password,
+			app.status.credentials[static_cast<size_t>(selectedItem)].credentialId, error))
 		{
 			ClearSecret(password); Error(app.window, error); return false;
 		}
 		ClearSecret(password);
-		auto devices = FIDODevice::GetDevices();
-		auto deviceIndex = ChooseDevice(app.window, devices, L"Choose any registered key to authorize removal.");
-		if (!deviceIndex) return false;
-		std::string pin;
-		FIDOSignResponse assertion;
-		const bool signedOk = SignChallenge(app.window, authorization, devices[*deviceIndex], pin, assertion);
-		if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size());
-		if (!signedOk) return false;
-		if (!app.broker.FinishRemoval(authorization.sessionId, assertion, error)) { Error(app.window, error); return false; }
 		return Refresh(app);
 	}
 
@@ -757,6 +747,11 @@ namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
 {
+	if (!localfido::IsCurrentProcessElevated())
+	{
+		Error(nullptr, L"Windows FIDO Logon Manager must be run as administrator.");
+		return 1;
+	}
 
 	AppState app;
 	DWORD errorCode = ERROR_SUCCESS;

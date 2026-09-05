@@ -71,7 +71,7 @@ foreach ($required in @('VCPKG_ROOT_DIR', 'no-sock', 'Pinned upstream OpenSSL po
 }
 
 $broker = Get-Content -LiteralPath (Join-Path $root 'BrokerService\BrokerService.cpp') -Raw
-foreach ($required in @('kSessionLifetime', 'kMaximumSessions', 'kMaximumSessionsPerCaller', 'kPipeIoTimeoutMs', 'TakeSession', 'ImpersonateNamedPipeClient', 'FILE_FLAG_FIRST_PIPE_INSTANCE', 'FILE_FLAG_OVERLAPPED', 'PIPE_REJECT_REMOTE_CLIENTS', 'SecureZeroMemory', 'finish_registration', 'begin_remove', 'finish_remove', 'policy state is inconsistent')) {
+foreach ($required in @('kSessionLifetime', 'kMaximumSessions', 'kMaximumSessionsPerCaller', 'kPipeIoTimeoutMs', 'TakeSession', 'ImpersonateNamedPipeClient', 'FILE_FLAG_FIRST_PIPE_INSTANCE', 'FILE_FLAG_OVERLAPPED', 'PIPE_REJECT_REMOTE_CLIENTS', 'SecureZeroMemory', 'finish_registration', 'begin_remove', 'remove_with_password', 'finish_remove', 'policy state is inconsistent')) {
     if ($broker -notmatch $required) { throw "Broker security contract missing: $required" }
 }
 if ($runtimeText -match 'WinVerifyTrust|WTHelper|(?i)wintrust\.lib') {
@@ -114,7 +114,7 @@ foreach ($required in @('BuildProjectReferences=false', '-BuildDirectory $buildD
 }
 
 $installer = Get-Content -LiteralPath (Join-Path $root 'WiXSetup\Product.wxs') -Raw
-foreach ($required in @('Schedule="afterInstallExecute"', 'NeverOverwrite="yes"', 'WindowsFidoLogonBroker', 'SafeBoot\Minimal')) {
+foreach ($required in @('Schedule="afterInstallExecute"', 'NeverOverwrite="yes"', 'ARPPRODUCTICON', 'WindowsFidoLogonBroker', 'SafeBoot\Minimal')) {
     if ($installer -notmatch [regex]::Escape($required)) { throw "Installer safety contract missing: $required" }
 }
 
