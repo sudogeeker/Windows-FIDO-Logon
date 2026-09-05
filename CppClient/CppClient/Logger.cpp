@@ -21,9 +21,10 @@
 
 #include "Logger.h"
 #include <Windows.h>
-#include <chrono>
-#include <iostream>
 #include <codecvt>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
 
 using namespace std;
 
@@ -35,35 +36,20 @@ void Logger::LogS(const string& message, const char* file, int line, bool isDebu
 		return;
 	}
 
-	// Format: [Time] [file:line]  message
-	time_t rawtime = NULL;
-	struct tm* timeinfo = (tm*)CoTaskMemAlloc(sizeof(tm));
-	char buffer[80];
-	SecureZeroMemory(buffer, sizeof(buffer));
-	if (timeinfo == nullptr)
-	{
-		return;
-	}
+	std::lock_guard<std::mutex> lock(_mutex);
+	time_t rawtime = 0;
+	struct tm timeinfo{};
+	char buffer[80]{};
 	time(&rawtime);
-	const errno_t err = localtime_s(timeinfo, &rawtime);
-	if (err != 0)
-	{
-		return;
-	}
-	strftime(buffer, sizeof(buffer), "%d-%m-%Y %H:%M:%S", timeinfo);
-	CoTaskMemFree(timeinfo);
+	if (localtime_s(&timeinfo, &rawtime) != 0) return;
+	strftime(buffer, sizeof(buffer), "%d-%m-%Y %H:%M:%S", &timeinfo);
 	string fullMessage = "[" + string(buffer) + "] [" + string(file) + ":" + to_string(line) + "] " + message;
 
-	ofstream os;
-	os.open(logfilePath.c_str(), std::ios_base::app);
+	ofstream os(std::filesystem::path(logfilePath), std::ios_base::app);
 	os << fullMessage << endl;
 
-#ifndef _OUTPUT_TO_COUT
 	OutputDebugStringA(fullMessage.c_str());
 	OutputDebugStringA("\n");
-#else
-	//std::cout << fullMessage << std::endl;
-#endif // !_OUTPUT_TO_COUT
 }
 
 void Logger::LogW(const wstring& message, const char* file, int line, bool isDebugMessage)

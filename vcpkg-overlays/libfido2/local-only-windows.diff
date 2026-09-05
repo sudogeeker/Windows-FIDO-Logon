@@ -1,0 +1,26 @@
+diff --git a/openbsd-compat/openbsd-compat.h b/openbsd-compat/openbsd-compat.h
+index 3108e9a..6a8e4bf 100644
+--- a/openbsd-compat/openbsd-compat.h
++++ b/openbsd-compat/openbsd-compat.h
+@@ -29,13 +29,19 @@
+ #if defined(_WIN32) && !defined(HAVE_ENDIAN_H)
+ #include <stdint.h>
++#if defined(_MSC_VER)
++#include <stdlib.h>
++#define be16toh(x) _byteswap_ushort((uint16_t)(x))
++#define htobe16(x) _byteswap_ushort((uint16_t)(x))
++#define be32toh(x) _byteswap_ulong((uint32_t)(x))
++#define htobe32(x) _byteswap_ulong((uint32_t)(x))
++#else
+ #include <winsock2.h>
+-#if !defined(_MSC_VER)
+ #include <sys/param.h>
+-#endif
+ #define be16toh(x) ntohs((x))
+ #define htobe16(x) htons((x))
+ #define be32toh(x) ntohl((x))
+ #define htobe32(x) htonl((x))
++#endif
+ uint32_t htole32(uint32_t);
+ uint64_t htole64(uint64_t);
+ #endif /* _WIN32 && !HAVE_ENDIAN_H */

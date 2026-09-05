@@ -19,15 +19,14 @@
 #pragma once
 
 #include <string>
-#include <fstream>
 #include <mutex>
 
 #define __FILENAME__ (strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__)
 
-#define PIError(message)				Logger::Get().Log(message, __FILENAME__, __LINE__, false)
-#define PIDebug(message)				Logger::Get().Log(message, __FILENAME__, __LINE__, true)
+#define WflError(message)			Logger::Get().Log(message, __FILENAME__, __LINE__, false)
+#define WflDebug(message)			Logger::Get().Log(message, __FILENAME__, __LINE__, true)
 
-// Singleton logger class that writes to a file on C: and to OutputDebugString
+// Singleton logger. Sensitive inputs must never be passed to this class.
 class Logger
 {
 public:
@@ -53,11 +52,9 @@ public:
 	bool logDebug = false;
 
 private:
-	std::string logfilePath = "C:\\PICredentialProviderLog.txt";
+	std::wstring logfilePath = L"C:\\ProgramData\\Windows FIDO Logon\\WindowsFidoLogon.log";
 	
 	Logger() = default;
-
-	std::ofstream _logStream;
 	std::mutex _mutex;
 
 	void LogS(const std::string& message, const char* file, int line, bool isDebugMessage);

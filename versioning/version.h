@@ -27,18 +27,18 @@
 #define STRINGIZE2(s) #s
 #define STRINGIZE(s) STRINGIZE2(s)
 
-#define VERSION_MAJOR               3
-#define VERSION_MINOR               8
+#define VERSION_MAJOR               1
+#define VERSION_MINOR               0
 #define VERSION_BUILD               0
 #define VERSION_REVISION            0
  
-#define VER_FILE_DESCRIPTION_STR    "privacyIDEA Credential Provider for Windows logon"
+#define VER_FILE_DESCRIPTION_STR    "Windows FIDO Logon local Credential Provider"
 #define VER_FILE_VERSION            VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD, VERSION_REVISION
 #define VER_FILE_VERSION_STR        STRINGIZE(VERSION_MAJOR)        \
                                     "." STRINGIZE(VERSION_MINOR)    \
                                     "." STRINGIZE(VERSION_BUILD)    \
                                     "." STRINGIZE(VERSION_REVISION) \
  
-#define VER_PRODUCTNAME_STR         "privacyIDEA CredentialProvider"
+#define VER_PRODUCTNAME_STR         "Windows FIDO Logon"
 
 #endif

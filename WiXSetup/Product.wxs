@@ -1,462 +1,87 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
-**
-** Copyright	2012 Dominik Pretzsch
-**				2017 NetKnights GmbH
-**
-** Author		Dominik Pretzsch
-**				Nils Behlen
-**
-**    Licensed under the Apache License, Version 2.0 (the "License");
-**    you may not use this file except in compliance with the License.
-**    You may obtain a copy of the License at
-**
-**        http://www.apache.org/licenses/LICENSE-2.0
-**
-**    Unless required by applicable law or agreed to in writing, software
-**    distributed under the License is distributed on an "AS IS" BASIS,
-**    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-**    See the License for the specific language governing permissions and
-**    limitations under the License.
-**
-** * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
--->
+<!-- Apache-2.0. Installs only local Windows FIDO Logon components. -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-	<?include $(sys.CURRENTDIR)\Config.wxi?>
-	<Product Id="*" Language="1033" Name="$(var.ProductName)" Manufacturer="$(var.Publisher)" Version="$(var.Version)" UpgradeCode="cc1e3a9f-e37e-4ca9-bb97-28c711acb4ed">
-		<Package Id="*" InstallerVersion="405" Compressed="yes" InstallScope="perMachine" InstallPrivileges="elevated" Manufacturer="$(var.Publisher)" Description="$(var.ProductName) $(var.Version) Setup" />
-		<MajorUpgrade AllowSameVersionUpgrades="yes"
-					  AllowDowngrades="no"
-					  MigrateFeatures="yes"
-					  DowngradeErrorMessage="A newer version of [ProductName] is already installed!"
-		/>
+  <?include Config.wxi?>
+  <Product Id="*" Name="$(var.ProductName)" Manufacturer="$(var.Publisher)" Language="1033"
+           Version="$(var.Version)" UpgradeCode="842EA4D9-6E63-4D18-9217-A4DBD1ED8728">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" InstallPrivileges="elevated"
+             Platform="x64" Description="Local password plus USB FIDO2 MFA for Windows 10/11 local accounts" />
+    <MajorUpgrade Schedule="afterInstallExecute"
+                  DowngradeErrorMessage="A newer Windows FIDO Logon version is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <Condition Message="Windows FIDO Logon requires 64-bit Windows 10 or Windows 11.">Installed OR (VersionNT64 AND MsiNTProductType = 1 AND WindowsBuild &gt;= 10240)</Condition>
+    <Condition Message="Administrator privileges are required.">Privileged</Condition>
 
-		<Property Id="ARPURLINFOABOUT" Value="$(var.AppURLInfoAbout)" />
-		<Property Id="ARPNOREPAIR" Value="yes" Secure="yes" />
-		<Property Id="ARPNOMODIFY" Value="yes" Secure="yes" />
-		<Condition Message="You need to be an administrator to install this product.">
-			Privileged
-		</Condition>
-		<CustomAction Id="IsPrivileged" Error="You must be an admin to install this product" />
-		<CustomAction Id="PreventDowngrading" Error="Newer version already installed." />
-		
-		<CustomAction Id="SetLocalesDefault" Property="LOCALES_PATH" Value="[locales]" />
-		<CustomAction Id="SetLocalesFromOld" Property="LOCALES_PATH" Value="[REG_LOCALES_PATH_OLD]" />
-		<CustomAction Id="SetLocalesFromNew" Property="LOCALES_PATH" Value="[REG_LOCALES_PATH_NEW]" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Windows FIDO Logon">
+          <Component Id="BrokerComponent" Guid="DC81B315-01A4-49B7-9892-6760DD2D713B" Win64="yes">
+            <File Id="BrokerExe" Source="$(var.BrokerService.TargetPath)" KeyPath="yes" />
+            <ServiceInstall Id="BrokerServiceInstall" Name="WindowsFidoLogonBroker" DisplayName="Windows FIDO Logon Broker"
+                            Description="Local named-pipe FIDO MFA verification broker" Type="ownProcess" Start="auto"
+                            ErrorControl="normal" Account="LocalSystem" Vital="yes" />
+            <ServiceControl Id="BrokerServiceControl" Name="WindowsFidoLogonBroker" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+            <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal\WindowsFidoLogonBroker" Type="string" Value="Service" />
+            <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\SafeBoot\Network\WindowsFidoLogonBroker" Type="string" Value="Service" />
+          </Component>
+          <Component Id="ManagerComponent" Guid="2967E080-0C31-4407-9EE8-1DF3389C8895" Win64="yes">
+            <File Id="ManagerExe" Source="$(var.Manager.TargetPath)" KeyPath="yes">
+              <Shortcut Id="ManagerShortcut" Directory="ProgramMenuFolder" Name="Windows FIDO Logon" WorkingDirectory="INSTALLFOLDER" Advertise="yes" />
+            </File>
+          </Component>
+          <Component Id="ProviderComponent" Guid="F9523D56-52B1-43FD-922A-6D4030C9BDB3" Win64="yes">
+            <File Id="CredentialProvider" Source="$(var.CredentialProvider.TargetPath)" KeyPath="yes" />
+            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderRegistryGUID)}" Type="string" Value="Windows FIDO Logon Credential Provider" />
+            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderRegistryGUID)}\InprocServer32" Type="string" Value="[#CredentialProvider]" />
+            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderRegistryGUID)}\InprocServer32" Name="ThreadingModel" Type="string" Value="Apartment" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{$(var.ProviderRegistryGUID)}" Type="string" Value="Windows FIDO Logon" />
+            <RemoveRegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{$(var.ProviderRegistryGUID)}" Action="removeOnUninstall" />
+          </Component>
+          <Component Id="FilterComponent" Guid="B7237283-AB10-4B1B-A419-5DA5052E9951" Win64="yes">
+            <File Id="CredentialProviderFilter" Source="$(var.CredentialProviderFilter.TargetPath)" KeyPath="yes" />
+            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderFilterRegistryGUID)}" Type="string" Value="Windows FIDO Logon Credential Provider Filter" />
+            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderFilterRegistryGUID)}\InprocServer32" Type="string" Value="[#CredentialProviderFilter]" />
+            <RegistryValue Root="HKCR" Key="CLSID\{$(var.ProviderFilterRegistryGUID)}\InprocServer32" Name="ThreadingModel" Type="string" Value="Apartment" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{$(var.ProviderFilterRegistryGUID)}" Type="string" Value="Windows FIDO Logon" />
+            <RemoveRegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{$(var.ProviderFilterRegistryGUID)}" Action="removeOnUninstall" />
+          </Component>
+          <Component Id="DocumentationComponent" Guid="390EC0B1-3341-473B-8DE7-ED1D673129BB" Win64="yes">
+            <File Id="ReadmeFile" Source="$(var.SolutionDir)README.md" KeyPath="yes" />
+            <File Id="LicenseFile" Source="$(var.SolutionDir)LICENSE" />
+            <File Id="NoticeFile" Source="$(var.SolutionDir)NOTICE.md" />
+            <File Id="ThirdPartyNoticesFile" Source="$(var.SolutionDir)THIRD_PARTY_NOTICES.md" />
+          </Component>
+        </Directory>
+      </Directory>
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="DataFolder" Name="Windows FIDO Logon">
+          <Component Id="DataComponent" Guid="4BD2087B-0355-481A-A8A6-6B9284B1969A" Win64="yes" NeverOverwrite="yes">
+            <CreateFolder>
+              <Permission User="SYSTEM" GenericAll="yes" />
+              <Permission User="Administrators" GenericAll="yes" />
+            </CreateFolder>
+            <RegistryValue Root="HKLM" Key="SOFTWARE\WindowsFidoLogon" Name="enable_filter" Type="integer" Value="0" KeyPath="yes" />
+            <RemoveFile Id="RemoveVault" Name="credentials.dat" On="uninstall" />
+            <RemoveFile Id="RemoveVaultBackup" Name="credentials.dat.bak" On="uninstall" />
+            <RemoveFile Id="RemoveVaultTemporary" Name="credentials.dat.tmp" On="uninstall" />
+            <RemoveFolder Id="RemoveDataFolder" On="uninstall" />
+            <RemoveRegistryKey Root="HKLM" Key="SOFTWARE\WindowsFidoLogon" Action="removeOnUninstall" />
+          </Component>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+    </Directory>
 
-		<InstallExecuteSequence>
-			<Custom Action="IsPrivileged" Before="AppSearch">Not Privileged</Custom>
-
-			<Custom Action="SetLocalesDefault" After="CostFinalize">NOT REG_LOCALES_PATH_OLD AND NOT REG_LOCALES_PATH_NEW</Custom>
-			<Custom Action="SetLocalesFromOld" After="SetLocalesDefault">REG_LOCALES_PATH_OLD AND NOT REG_LOCALES_PATH_NEW</Custom>
-			<Custom Action="SetLocalesFromNew" After="SetLocalesFromOld">REG_LOCALES_PATH_NEW</Custom>
-		</InstallExecuteSequence>
-
-		<Icon Id="icon.ico" SourceFile="$(var.SolutionDir)icon.ico" />
-		<Property Id="ARPPRODUCTICON" Value="icon.ico" />
-		<Media Id="1" Cabinet="Sample.cab" EmbedCab="yes" DiskPrompt="DISK #1" />
-		<Property Id="DiskPrompt" Value="$(var.ProductName) Setup [1]" />
-		<Binary Id="InfoIcon" SourceFile="$(var.SolutionDir)info.ico" />
-		<Binary Id="HelpIcon" SourceFile="$(var.SolutionDir)help.ico" />
-		<Binary Id="ExclamIcon" SourceFile="$(var.SolutionDir)exclam.ico" />
-		<Property Id="HOSTNAME" Value="hostname">
-			<RegistrySearch Id="SearchHostname" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="hostname" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="CUSTOM_PORT">
-			<RegistrySearch Id="SearchCustomPort" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="custom_port" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="PATH" Value="/path/to/pi">
-			<RegistrySearch Id="SearchPath" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="path" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="LOGIN_TEXT">
-			<RegistrySearch Id="SearchLoginText" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="login_text" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="OTP_TEXT">
-			<RegistrySearch Id="SearchOTPText" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="otp_text" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="V1_BITMAP_PATH">
-			<RegistrySearch Id="SearchV1BitmapPath" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="v1_bitmap_path" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="TWO_STEP_SEND_PASSWORD">
-			<RegistrySearch Id="SearchTwoStepSendPassword" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="two_step_send_password" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="TWO_STEP_SEND_EMPTY_PASSWORD">
-			<RegistrySearch Id="SearchTwoStepSendEmptyPassword" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="two_step_send_empty_password" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="SSL_IGNORE_UNKNOWN_CA">
-			<RegistrySearch Id="SearchSSLIgnoreUnknownCA" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="ssl_ignore_unknown_ca" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="SSL_IGNORE_INVALID_CN">
-			<RegistrySearch Id="SearchSSLIgnoreInvalidCN" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="ssl_ignore_invalid_cn" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="HIDE_DOMAINNAME">
-			<RegistrySearch Id="SearchHideDomainname" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="hide_domainname" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="HIDE_FULLNAME">
-			<RegistrySearch Id="SearchHideFullname" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="hide_fullname" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="DEBUG_LOG">
-			<RegistrySearch Id="SearchDebugLog" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="debug_log" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="SEND_UPN">
-			<RegistrySearch Id="SearchSendUPN" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="send_upn" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="RESOLVE_UPN">
-			<RegistrySearch Id="SearchResolveUPN" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="resolve_upn" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="ENABLE_FILTER">
-			<RegistrySearch Id="SearchEnableFilter" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="enable_filter" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="ENABLE_RESET">
-			<RegistrySearch Id="SearchEnableReset" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="enable_reset" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="FILTER_WHITELIST">
-			<RegistrySearch Id="SearchFilterWhitelist" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="filter_whitelist" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="CPUS_LOGON" Value="0e">
-			<RegistrySearch Id="SearchCPUSLogon" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="cpus_logon" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="CPUS_UNLOCK" Value="0e">
-			<RegistrySearch Id="SearchCPUSUnlock" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="cpus_unlock" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="CPUS_CREDUI" Value="0e">
-			<RegistrySearch Id="SearchCPUSCredUI" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="cpus_credui" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="RESET_LINK_TEXT">
-			<RegistrySearch Id="SearchResetLinkText" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="reset_link_text" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="OFFLINE_FILE_PATH">
-			<RegistrySearch Id="SearchOfflineFilePath" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="offline_file" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="OFFLINE_TRY_WINDOW">
-			<RegistrySearch Id="SearchOfflineTryWindow" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="offline_try_window" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="OFFLINE_THRESHOLD" Value="25">
-			<RegistrySearch Id="SearchOfflineTreshold" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="offline_threshold" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="OFFLINE_SHOW_INFO">
-			<RegistrySearch Id="SearchOfflineShowInfo" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="offline_show_info" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="OTP_LINK_TEXT">
-			<RegistrySearch Id="SearchOTPLinkText" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="otp_link_text" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="WEBAUTHN_LINK_TEXT">
-			<RegistrySearch Id="SearchWebAuthnLinkText" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="webauthn_link_text" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="WEBAUTHN_PREFERRED">
-			<RegistrySearch Id="SearchWebAuthnPreferred" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="webauthn_preferred" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="WEBAUTHN_PIN_HINT">
-			<RegistrySearch Id="SearchWebAuthnPinHint" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="webauthn_pin_hint" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="WEBAUTHN_OFFLINE_NO_PIN">
-			<RegistrySearch Id="SearchWebAuthnOfflineNoPIN" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="webauthn_offline_no_pin" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="OTP_FAIL_RETURN_TO_FIRST_STEP">
-			<RegistrySearch Id="SearchOtpFailReturnToFirstStep" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="otp_fail_return_to_first_step" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="USERNAME_PASSWORD">
-			<RegistrySearch Id="SearchUsernamePassword" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="username_password" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="DISABLE_PASSKEY">
-			<RegistrySearch Id="SearchDisablePasskey" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="disable_passkey" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="SHOW_DOMAIN_HINT">
-			<RegistrySearch Id="SearchShowDomainHint" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="show_domain_hint" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="PREFILL_USERNAME">
-			<RegistrySearch Id="SearchPrefillUsername" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="prefill_username" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="NO_DEFAULT">
-			<RegistrySearch Id="SearchNoDefault" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="no_default" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="EXCLUDED_ACCOUNT">
-			<RegistrySearch Id="SearchExcludedAccount" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="excluded_account" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="RESOLVE_TIMEOUT">
-			<RegistrySearch Id="SearchResolveTimeout" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="resolve_timeout" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="CONNECT_TIMEOUT">
-			<RegistrySearch Id="SearchConnectTimeout" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="connect_timeout" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="SEND_TIMEOUT">
-			<RegistrySearch Id="SearchSendTimeout" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="send_timeout" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="RECEIVE_TIMEOUT">
-			<RegistrySearch Id="SearchReceiveTimeout" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="receive_timeout" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="DEFAULT_REALM">
-			<RegistrySearch Id="SearchDefaultRealm" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="default_realm" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="HIDE_FIRST_STEP_RESPONSE_ERROR">
-			<RegistrySearch Id="SearchHideFirstStepResponseError" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="hide_first_step_response_error" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="FALLBACK_HOSTNAME">
-			<RegistrySearch Id="SearchFallbackHostname" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="fallback_hostname" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="FALLBACK_PORT">
-			<RegistrySearch Id="SearchFallbackPort" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="fallback_port" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="FALLBACK_PATH">
-			<RegistrySearch Id="SearchFallbackPath" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="fallback_path" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="EXCLUDED_GROUP">
-			<RegistrySearch Id="SearchExcludedGroup" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="excluded_group" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="EXCLUDED_GROUP_NETBIOS_ADDRESS">
-			<RegistrySearch Id="SearchNetBiosAddress" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="excluded_group_netbios_address" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="LOCALES_PATH" />
-		<Property Id="REG_LOCALES_PATH_OLD">
-			<RegistrySearch Id="SearchLocalesPathOld" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="localesPath" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="REG_LOCALES_PATH_NEW">
-			<RegistrySearch Id="SearchLocalesPathNew" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="locales_path" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="WEBAUTHN_OFFLINE_SECOND_STEP">
-			<RegistrySearch Id="SearchWebAuthnOfflineSecondStep" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="webauthn_offline_second_step" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="WEBAUTHN_OFFLINE_PREFERRED">
-			<RegistrySearch Id="SearchWebAuthnOfflinePreferred" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="webauthn_offline_preferred" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="WEBAUTHN_OFFLINE_HIDE_FIRST_STEP">
-			<RegistrySearch Id="SearchWebAuthnOfflineHideFirstStep" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="webauthn_offline_hide_first_step" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="AUTOLOGON_USERNAME">
-			<RegistrySearch Id="SearchAutologonUsername" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="autologon_username" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="AUTOLOGON_DOMAIN">
-			<RegistrySearch Id="SearchAutologonDomain" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="autologon_domain" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="AUTOLOGON_PASSWORD">
-			<RegistrySearch Id="SearchAutologonPassword" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="autologon_password" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="TRUSTED_RPIDS">
-			<RegistrySearch Id="SearchTrustedRpids" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="trusted_rpids" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="OFFLINE_EXPIRATION_DAYS" Value="0" Secure="yes">
-			<RegistrySearch Id="SearchOfflineExpirationDays" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="offline_expiration_days" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="OFFLINE_DELETE_AFTER_DAYS" Value="0" Secure="yes">
-			<RegistrySearch Id="SearchOfflineDeleteAfterDays" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="offline_delete_after_days" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="DISABLE_WINDOWS_HELLO_FOR_CREDUI">
-			<RegistrySearch Id="SearchDisableWindowsHelloCredUI" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="disable_windows_hello_for_credui" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="CHECK_ALL_OFFLINE_CREDENTIALS">
-			<RegistrySearch Id="SearchCheckAllOffline" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="check_all_offline_credentials" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="LIBFIDO_DEBUG">
-			<RegistrySearch Id="SearchLibfidoDebug" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="libfido_debug" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="LANGUAGE">
-			<RegistrySearch Id="SearchLanguage" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="language" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="HEADER_ACCEPT_LANGUAGE" Value="system">
-			<RegistrySearch Id="SearchHeaderAcceptLanguage" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="header_accept_language" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Property Id="PASSKEY_FIRST_STEP">
-			<RegistrySearch Id="SearchPasskeyFirstStep" Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="passkey_first_step" Win64="$(var.Win64)" Type="raw" />
-		</Property>
-		<Directory Id="TARGETDIR" Name="SourceDir">
-			<?if $(var.Configuration) = Debug ?>
-			<?if $(var.Platform) = x64 ?>
-			<Merge Id="VCRedist" SourceFile="$(var.SolutionDir)lib\merge\Microsoft_VC143_DebugCRT_x64.msm" DiskId="1" Language="0" />
-			<?else ?>
-			<Merge Id="VCRedist" SourceFile="$(var.SolutionDir)lib\merge\Microsoft_VC143_DebugCRT_x86.msm" DiskId="1" Language="0" />
-			<?endif ?>
-			<?else ?>
-			<?if $(var.Platform) = x64 ?>
-			<Merge Id="VCRedist" SourceFile="$(var.SolutionDir)lib\merge\Microsoft_VC143_CRT_x64.msm" DiskId="1" Language="0" />
-			<?else ?>
-			<Merge Id="VCRedist" SourceFile="$(var.SolutionDir)lib\merge\Microsoft_VC143_CRT_x86.msm" DiskId="1" Language="0" />
-			<?endif ?>
-			<?endif ?>
-			<Directory Id="$(var.PlatformProgramFilesFolder)">
-				<Directory Id="CompanyFolder" Name="$(var.Publisher)">
-					<Directory Id="INSTALLFOLDER" Name="$(var.ProductFolderName)">
-						<Component Id="DefaultFilesInProgrammFolder" Location="local" Guid="9d02dffe-1766-420c-97b5-755979b68205">
-							<RemoveFile Id="RemoveInstallFiles" Name="*" On="install" />
-							<RemoveFolder Id="RemoveInstallFolder" On="install" />
-							<RemoveFolder Id="RemoveCompanyFolderIfEmpty" Directory="CompanyFolder" On="install" />
-						</Component>
-					</Directory>
-				</Directory>
-			</Directory>
-			<Directory Id="$(var.PlatformProgramDataFolder)" Name="$(var.PlatformProgramDataFolder)">
-				<Directory Id="PublisherFolder" Name ="$(var.Publisher)">
-					<Directory Id="ProductFolderName" Name="$(var.ProductFolderName)">
-						<Directory Id="locales" Name="locales" >
-							<Component Id="LocalizationFilesInProgramDataFolder" Location="local" Guid="ddab0976-8d7c-476b-87c5-1318d39c65a1">
-								<File Id="Localization_en"  Name="en.json" Source="$(var.SolutionDir)locales\en.json"  />
-								<File Id="Localization_es"  Name="es.json" Source="$(var.SolutionDir)locales\es.json"  />
-								<File Id="Localization_de"  Name="de.json" Source="$(var.SolutionDir)locales\de.json"  />
-								<File Id="Localization_fr"  Name="fr.json" Source="$(var.SolutionDir)locales\fr.json"  />
-								<File Id="Localization_zh_cn"  Name="zh_cn.json" Source="$(var.SolutionDir)locales\zh_cn.json"  />
-
-								<RemoveFile Id="RemoveLocalesFiles" Name="*" On="uninstall" />
-								<RemoveFolder Id="RemoveLocalization" On="uninstall" />
-								<RemoveFolder Id="RemovePublisherFolderIfEmpty" Directory="PublisherFolder" On="uninstall" />
-							</Component>
-						</Directory>
-					</Directory>
-				</Directory>
-			</Directory>
-
-			<Directory Id="$(var.PlatformSystemFolder)">
-				<Component Location="local" Guid="9944eca5-ac62-4a0e-82fa-5ec243a56b0d" Transitive="yes">
-					<Condition>1</Condition>
-					<File Id="CredentialProvider" Name="$(var.CredentialProvider.TargetFileName)" Source="$(var.CredentialProvider.TargetPath)" KeyPath="yes" />
-					<RemoveFile Id="RemoveCredentialProviderFiles" Name="$(var.CredentialProvider.TargetFileName)" On="uninstall" />
-					<RegistryKey Root="HKCR" Key="CLSID\{$(var.ProviderRegistryGUID)}" ForceCreateOnInstall="yes">
-						<RegistryValue Type="string" Value="$(var.CredentialProvider.TargetName)" />
-						<RegistryKey Key="InprocServer32">
-							<RegistryValue Type="string" Value="$(var.CredentialProvider.TargetFileName)" />
-							<RegistryValue Name="ThreadingModel" Type="string" Value="Apartment" />
-						</RegistryKey>
-					</RegistryKey>
-					<RemoveRegistryKey Root="HKCR" Key="CLSID\{$(var.ProviderRegistryGUID)}" Action="removeOnUninstall" />
-					<RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{$(var.ProviderRegistryGUID)}" Type="string" Value="PrivacyIDEA$(var.CredentialProvider.TargetName)" />
-					<RemoveRegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{$(var.ProviderRegistryGUID)}" Action="removeOnUninstall" />
-					<RegistryKey Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" ForceCreateOnInstall="yes">
-						<RegistryKey Key="realm-mapping" ForceCreateOnInstall="yes" />
-
-						<RegistryValue Name="hostname" Type="string" Value="[HOSTNAME]" />
-						<RegistryValue Name="path" Type="string" Value="[PATH]" />
-						<RegistryValue Name="custom_port" Type="string" Value="[CUSTOM_PORT]" />
-
-						<RegistryValue Name="fallback_hostname" Type="string" Value="[FALLBACK_HOSTNAME]" />
-						<RegistryValue Name="fallback_path" Type="string" Value="[FALLBACK_PATH]" />
-						<RegistryValue Name="fallback_port" Type="string" Value="[FALLBACK_PORT]" />
-
-						<RegistryValue Name="ssl_ignore_unknown_ca" Type="string" Value="[SSL_IGNORE_UNKNOWN_CA]" />
-						<RegistryValue Name="ssl_ignore_invalid_cn" Type="string" Value="[SSL_IGNORE_INVALID_CN]" />
-
-						<RegistryValue Name="resolve_timeout" Type="string" Value="[RESOLVE_TIMEOUT]" />
-						<RegistryValue Name="connect_timeout" Type="string" Value="[CONNECT_TIMEOUT]" />
-						<RegistryValue Name="send_timeout" Type="string" Value="[SEND_TIMEOUT]" />
-						<RegistryValue Name="receive_timeout" Type="string" Value="[RECEIVE_TIMEOUT]" />
-
-						<RegistryValue Name="excluded_account" Type="string" Value="[EXCLUDED_ACCOUNT]" />
-						<RegistryValue Name="excluded_group" Type="string" Value="[EXCLUDED_GROUP]" />
-						<RegistryValue Name="excluded_group_netbios_address" Type="string" Value="[EXCLUDED_GROUP_NETBIOS_ADDRESS]" />
-						<RegistryValue Name="v1_bitmap_path" Type="string" Value="[V1_BITMAP_PATH]" />
-						<RegistryValue Name="two_step_send_password" Type="string" Value="[TWO_STEP_SEND_PASSWORD]" />
-						<RegistryValue Name="two_step_send_empty_password" Type="string" Value="[TWO_STEP_SEND_EMPTY_PASSWORD]" />
-						<RegistryValue Name="username_password" Type="string" Value="[USERNAME_PASSWORD]" />
-
-						<RegistryValue Name="hide_fullname" Type="string" Value="[HIDE_FULLNAME]" />
-						<RegistryValue Name="hide_domainname" Type="string" Value="[HIDE_DOMAINNAME]" />
-						<RegistryValue Name="hide_first_step_response_error" Type="string" Value="[HIDE_FIRST_STEP_RESPONSE_ERROR]" />
-						<RegistryValue Name="show_domain_hint" Type="string" Value="[SHOW_DOMAIN_HINT]" />
-						<RegistryValue Name="prefill_username" Type="string" Value="[PREFILL_USERNAME]" />
-						<RegistryValue Name="enable_reset" Type="string" Value="[ENABLE_RESET]" />
-						<RegistryValue Name="send_upn" Type="string" Value="[SEND_UPN]" />
-						<RegistryValue Name="resolve_upn" Type="string" Value="[RESOLVE_UPN]" />
-						<RegistryValue Name="cpus_logon" Type="string" Value="[CPUS_LOGON]" />
-						<RegistryValue Name="cpus_unlock" Type="string" Value="[CPUS_UNLOCK]" />
-						<RegistryValue Name="cpus_credui" Type="string" Value="[CPUS_CREDUI]" />
-						<RegistryValue Name="enable_filter" Type="string" Value="[ENABLE_FILTER]" />
-						<RegistryValue Name="filter_whitelist" Type="multiString" Value="[FILTER_WHITELIST]" />
-						<RegistryValue Name="webauthn_preferred" Type="string" Value="[WEBAUTHN_PREFERRED]" />
-						<RegistryValue Name="webauthn_offline_no_pin" Type="string" Value="[WEBAUTHN_OFFLINE_NO_PIN]" />
-						<RegistryValue Name="disable_passkey" Type="string" Value="[DISABLE_PASSKEY]" />
-						<RegistryValue Name="webauthn_offline_second_step" Type="string" Value="[WEBAUTHN_OFFLINE_SECOND_STEP]" />
-						<RegistryValue Name="webauthn_offline_hide_first_step" Type="string" Value="[WEBAUTHN_OFFLINE_HIDE_FIRST_STEP]" />
-						<RegistryValue Name="webauthn_offline_preferred" Type="string" Value="[WEBAUTHN_OFFLINE_PREFERRED]" />
-						<RegistryValue Name="trusted_rpids" Type="multiString" Value="[TRUSTED_RPIDS]" />
-						<RegistryValue Name="libfido_debug" Type="string" Value="[LIBFIDO_DEBUG]" />
-						<RegistryValue Name="offline_file" Type="string" Value="[OFFLINE_FILE_PATH]" />
-						<RegistryValue Name="offline_try_window" Type="string" Value="[OFFLINE_TRY_WINDOW]" />
-						<RegistryValue Name="offline_threshold" Type="string" Value="[OFFLINE_THRESHOLD]" />
-						<RegistryValue Name="offline_show_info" Type="string" Value="[OFFLINE_SHOW_INFO]" />
-						<RegistryValue Name="offline_expiration_days" Type="string" Value="[OFFLINE_EXPIRATION_DAYS]" />
-						<RegistryValue Name="offline_delete_after_days" Type="string" Value="[OFFLINE_DELETE_AFTER_DAYS]" />
-						<RegistryValue Name="check_all_offline_credentials" Type="string" Value="[CHECK_ALL_OFFLINE_CREDENTIALS]" />
-						<RegistryValue Name="header_accept_language" Type="string" Value="[HEADER_ACCEPT_LANGUAGE]" />
-						<RegistryValue Name="user_agent_hide_computer_name" Type="string" Value="" />
-						<RegistryValue Name="passkey_first_step" Type="string" Value="[PASSKEY_FIRST_STEP]" />
-						<RegistryValue Name="locales_path" Type="string" Value="[LOCALES_PATH]" />
-						<RegistryValue Name="debug_log" Type="string" Value="[DEBUG_LOG]" />
-						<RegistryValue Name="no_default" Type="string" Value="[NO_DEFAULT]" />
-						<RegistryValue Name="log_sensitive" Type="string" Value="" />
-						<RegistryValue Name="default_realm" Type="string" Value="[DEFAULT_REALM]" />
-						<RegistryValue Name="otp_fail_return_to_first_step" Type="string" Value="[OTP_FAIL_RETURN_TO_FIRST_STEP]" />
-						<RegistryValue Name="disable_windows_hello_for_credui" Type="string" Value="[DISABLE_WINDOWS_HELLO_FOR_CREDUI]" />
-						<RegistryValue Name="language" Type="string" Value="[LANGUAGE]" />
-						<RegistryValue Name="autologon_username" Type="string" Value="[AUTOLOGON_USERNAME]" />
-						<RegistryValue Name="autologon_domain" Type="string" Value="[AUTOLOGON_DOMAIN]" />
-						<RegistryValue Name="autologon_password" Type="string" Value="[AUTOLOGON_PASSWORD]" />
-					</RegistryKey>
-					<RemoveRegistryKey Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Action="removeOnUninstall" />
-				</Component>
-				
-				<Component Location="local" Guid="a6d595a6-58b4-4541-8171-65f3f364b58c">
-					<File Id="CredentialProviderFilter" Name="$(var.CredentialProviderFilter.TargetFileName)" Source="$(var.CredentialProviderFilter.TargetPath)" KeyPath="yes" />
-					<RemoveFile Id="RemoveCredentialProviderFilterFiles" Name="$(var.CredentialProviderFilter.TargetFileName)" On="uninstall" />
-					<RegistryKey Root="HKCR" Key="CLSID\{$(var.ProviderFilterRegistryGUID)}" ForceCreateOnInstall="yes">
-						<RegistryValue Type="string" Value="$(var.CredentialProviderFilter.TargetName)" />
-						<RegistryKey Key="InprocServer32">
-							<RegistryValue Type="string" Value="$(var.CredentialProviderFilter.TargetFileName)" />
-							<RegistryValue Name="ThreadingModel" Type="string" Value="Apartment" />
-						</RegistryKey>
-					</RegistryKey>
-				</Component>
-				<Component Id="ActivateCredentialProviderFilter" Location="local" Guid="ddc94b52-e7f2-4632-9f04-37f1b2b3c7a3">
-					<RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{$(var.ProviderFilterRegistryGUID)}" Type="string" Value="$(var.CredentialProviderFilter.TargetName)" KeyPath="yes" />
-					<RemoveRegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{$(var.ProviderFilterRegistryGUID)}" Action="removeOnUninstall" />
-				</Component>
-				<Component Id="RemoveObsoleteRegistryValues" Location="local" Guid="1D247BD9-A548-4904-A3E0-3C6F3234A111">
-					<CreateFolder />
-					<RemoveRegistryValue Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="otp_link_text"/>
-					<RemoveRegistryValue Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="reset_link_text"/>
-					<RemoveRegistryValue Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="otp_fail_text"/>
-					<RemoveRegistryValue Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="otp_text"/>
-					<RemoveRegistryValue Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="two_step_hide_otp"/>
-					<RemoveRegistryValue Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="login_text"/>
-					<RemoveRegistryValue Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="webauthn_link_text"/>
-					<RemoveRegistryValue Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="webauthn_pin_hint"/>
-					<RemoveRegistryValue Root="HKLM" Key="SOFTWARE\$(var.Manufacturer)\$(var.SimpleProductName)" Name="localesPath"/>
-				</Component>
-				<Component Id="RegisterForSafeMode" Location="local" Guid="49BB889F-6F08-48A9-9284-E0FF0F166F78">
-					<Condition>REGISTER_FOR_SAFEMODE=1</Condition>
-					<RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers" Name="ProhibitFallbacks" Type="integer" Value="1" />
-					<RemoveRegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers" Name="ProhibitFallbacks"/>
-				</Component>
-
-			</Directory>
-		</Directory>
-		<Feature Id="Complete" Title="$(var.ProductName)" Description="Full install" Display="expand" Level="1" ConfigurableDirectory="INSTALLFOLDER" AllowAdvertise="no" Absent="disallow" InstallDefault="local">
-			<Feature Id="MainInstall" Title="Core components" Description="Core $(var.ProductName) components" Level="1" AllowAdvertise="no" Absent="disallow" InstallDefault="local">
-				<ComponentRef Id="CredentialProvider" />
-				<ComponentRef Id="CredentialProviderFilter" />
-				<ComponentRef Id="ActivateCredentialProviderFilter" />
-				<ComponentRef Id="LocalizationFilesInProgramDataFolder"/>
-				<ComponentRef Id="RemoveObsoleteRegistryValues"/>
-				<ComponentRef Id="RegisterForSafeMode" />
-			</Feature>
-			<Feature Id="VCRedist" Title="Visual C++ Runtime" AllowAdvertise="no" Display="hidden" Level="1">
-				<MergeRef Id="VCRedist" />
-			</Feature>
-			<ComponentRef Id="DefaultFilesInProgrammFolder" />
-		</Feature>
-		<WixVariable Id="WixUILicenseRtf" Value="$(var.SolutionDir)ApacheLicense.rtf" />
-		<WixVariable Id="WixUIBannerBmp" Value="$(var.SolutionDir)WixUIBannerBmp.bmp" />
-		<WixVariable Id="WixUIDialogBmp" Value="$(var.SolutionDir)WixUIDialogBmp.bmp" />
-		<UI Id="MyWixUI_FeatureTree">
-			<UIRef Id="WixUI_FeatureTree" />
-			<DialogRef Id="ServerDlg" />
-			<DialogRef Id="UIDlg" />
-			<DialogRef Id="FilterDlg" />
-			<DialogRef Id="FidoDlg" />
-			<DialogRef Id="OfflineDlg" />
-			<DialogRef Id="OfflineCleanupDlg" />
-			<Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="ServerDlg">1</Publish>
-
-			<Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="OfflineCleanupDlg" Order="1">
-				NOT Installed OR (WixUI_InstallMode = "Change" AND USER_IS_ADMINISTRATOR = "1" )
-			</Publish>
-		</UI>
-	</Product>
+    <Feature Id="Complete" Title="Windows FIDO Logon" Level="1" Absent="disallow">
+      <ComponentRef Id="BrokerComponent" />
+      <ComponentRef Id="ManagerComponent" />
+      <ComponentRef Id="DocumentationComponent" />
+      <ComponentRef Id="ProviderComponent" />
+      <ComponentRef Id="FilterComponent" />
+      <ComponentRef Id="DataComponent" />
+    </Feature>
+    <UIRef Id="WixUI_InstallDir" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.SolutionDir)ApacheLicense.rtf" />
+  </Product>
 </Wix>

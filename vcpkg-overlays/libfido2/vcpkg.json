@@ -1,0 +1,17 @@
+{
+  "name": "libfido2",
+  "version": "1.17.0",
+  "description": "Local-only Windows build of libfido2 with Windows Hello, PC/SC, and NFC disabled.",
+  "homepage": "https://developers.yubico.com/libfido2/",
+  "license": "BSD-2-Clause",
+  "supports": "windows & !uwp",
+  "dependencies": [
+    "libcbor",
+    "openssl",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    "zlib"
+  ]
+}

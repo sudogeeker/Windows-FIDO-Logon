@@ -18,11 +18,10 @@
 ** * * * * * * * * * * * * * * * * * * */
 #pragma once
 #include <string>
-#include <map>
 #include <vector>
 
-constexpr auto CONFIG_REGISTRY_PATH = L"SOFTWARE\\Netknights GmbH\\PrivacyIDEA-CP\\";
-constexpr auto REALM_MAPPING_REGISTRY_PATH = L"SOFTWARE\\Netknights GmbH\\PrivacyIDEA-CP\\realm-mapping";
+constexpr auto CONFIG_REGISTRY_PATH = L"SOFTWARE\\WindowsFidoLogon\\";
+constexpr auto ENFORCED_SIDS_REGISTRY_VALUE = L"EnforcedSids";
 constexpr auto LAST_USER_REGISTRY_PATH = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Authentication\\LogonUI";
 
 class RegistryReader
@@ -33,14 +32,9 @@ public:
 
 	std::wstring path;
 
-	// puts all keys and values from the current path into a map, the keys will be converted to uppercase
-	bool GetAll(const std::wstring& pathToKey, std::map<std::wstring, std::wstring>& map) noexcept;
-
 	std::wstring GetWString(std::wstring name) noexcept;
 
 	bool GetBool(std::wstring name) noexcept;
-
-	int GetInt(std::wstring name) noexcept;
 
 	std::vector<std::wstring> GetMultiSZ(const std::wstring& valueName) noexcept;
 };

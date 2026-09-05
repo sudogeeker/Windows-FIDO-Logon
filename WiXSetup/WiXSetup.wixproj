@@ -1,66 +1,13 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <!-- Global properties -->
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
-    <ProductVersion>3.7</ProductVersion>
-    <ProjectGuid>4d2113b2-c2d3-44d1-bfc7-5502e801872e</ProjectGuid>
-    <SchemaVersion>2.0</SchemaVersion>
-    <OutputName>privacyIDEACredentialProviderSetup</OutputName>
-    <OutputType>Package</OutputType>
-    <WixTargetsPath Condition=" '$(WixTargetsPath)' == '' AND '$(MSBuildExtensionsPath32)' != '' ">$(MSBuildExtensionsPath32)\Microsoft\WiX\v3.x\Wix.targets</WixTargetsPath>
-    <WixTargetsPath Condition=" '$(WixTargetsPath)' == '' ">$(MSBuildExtensionsPath)\Microsoft\WiX\v3.x\Wix.targets</WixTargetsPath>
-    <Name>CredentialProviderSetup</Name>
-    <OutputPath>bin\$(Platform)\$(Configuration)\</OutputPath>
-    <IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath>
-  </PropertyGroup>
-  <!-- Debug and test configurations -->
-  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' Or '$(Configuration)' == 'test' ">
-    <DefineConstants>Debug</DefineConstants>
-    <SuppressIces>ICE09;</SuppressIces>
-  </PropertyGroup>
-  <!-- Release configuration -->
-  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
-    <SuppressIces>ICE09;</SuppressIces>
-    <SuppressValidation>False</SuppressValidation>
-  </PropertyGroup>
+  <PropertyGroup><Configuration Condition="'$(Configuration)'==''">Debug</Configuration><Platform Condition="'$(Platform)'==''">x64</Platform><ProjectGuid>{4D2113B2-C2D3-44D1-BFC7-5502E801872E}</ProjectGuid><OutputName>WindowsFidoLogonSetup</OutputName><OutputType>Package</OutputType><WixTargetsPath Condition="'$(WixTargetsPath)'=='' AND '$(MSBuildExtensionsPath32)'!=''">$(MSBuildExtensionsPath32)\Microsoft\WiX\v3.x\Wix.targets</WixTargetsPath><WixTargetsPath Condition="'$(WixTargetsPath)'==''">$(MSBuildExtensionsPath)\Microsoft\WiX\v3.x\Wix.targets</WixTargetsPath><OutputPath>bin\$(Platform)\$(Configuration)\</OutputPath><IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath></PropertyGroup>
+  <ItemGroup><Compile Include="Product.wxs" /><Content Include="Config.wxi" /></ItemGroup>
+  <ItemGroup><WixExtension Include="WixUIExtension"><HintPath>$(WixExtDir)\WixUIExtension.dll</HintPath></WixExtension><WixExtension Include="WixUtilExtension"><HintPath>$(WixExtDir)\WixUtilExtension.dll</HintPath></WixExtension></ItemGroup>
   <ItemGroup>
-    <Compile Include="ConfigurationDlgs.wxs" />
-    <Compile Include="Product.wxs" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="Config.wxi" />
-  </ItemGroup>
-  <ItemGroup>
-    <WixExtension Include="WixUIExtension">
-      <HintPath>$(WixExtDir)\WixUIExtension.dll</HintPath>
-      <Name>WixUIExtension</Name>
-    </WixExtension>
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="ConfigurationDlgsLocales.wxl" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\CredentialProviderFilter\CredentialProviderFilter.vcxproj">
-      <Name>CredentialProviderFilter</Name>
-      <Project>{e8100bb4-e5f1-47d0-a4fd-4a8c70503d9f}</Project>
-      <Private>True</Private>
-      <DoNotHarvest>True</DoNotHarvest>
-      <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
-      <RefTargetDir>INSTALLFOLDER</RefTargetDir>
-    </ProjectReference>
-    <ProjectReference Include="..\CredentialProvider\CredentialProvider.vcxproj">
-      <Name>CredentialProvider</Name>
-      <Project>{2df895c3-d1b4-4632-8f76-f06670a0d311}</Project>
-      <Private>True</Private>
-      <DoNotHarvest>True</DoNotHarvest>
-      <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
-      <RefTargetDir>INSTALLFOLDER</RefTargetDir>
-    </ProjectReference>
+    <ProjectReference Include="..\CredentialProvider\CredentialProvider.vcxproj"><Name>CredentialProvider</Name><Project>{2DF895C3-D1B4-4632-8F76-F06670A0D311}</Project><Private>True</Private><DoNotHarvest>True</DoNotHarvest><RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups><RefTargetDir>INSTALLFOLDER</RefTargetDir></ProjectReference>
+    <ProjectReference Include="..\CredentialProviderFilter\CredentialProviderFilter.vcxproj"><Name>CredentialProviderFilter</Name><Project>{E8100BB4-E5F1-47D0-A4FD-4A8C70503D9F}</Project><Private>True</Private><DoNotHarvest>True</DoNotHarvest><RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups><RefTargetDir>INSTALLFOLDER</RefTargetDir></ProjectReference>
+    <ProjectReference Include="..\BrokerService\BrokerService.vcxproj"><Name>BrokerService</Name><Project>{4E4B5512-8C45-46AD-982D-0863459A4F10}</Project><Private>True</Private><DoNotHarvest>True</DoNotHarvest><RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups><RefTargetDir>INSTALLFOLDER</RefTargetDir></ProjectReference>
+    <ProjectReference Include="..\Manager\Manager.vcxproj"><Name>Manager</Name><Project>{5AC17E13-6B73-4D8A-9CF8-10FD9B44B090}</Project><Private>True</Private><DoNotHarvest>True</DoNotHarvest><RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups><RefTargetDir>INSTALLFOLDER</RefTargetDir></ProjectReference>
   </ItemGroup>
   <Import Project="$(WixTargetsPath)" />
-  <PropertyGroup>
-    <PostBuildEvent />
-  </PropertyGroup>
 </Project>

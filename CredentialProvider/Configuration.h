@@ -1,254 +1,38 @@
-/* * * * * * * * * * * * * * * * * * * * *
-**
-** Copyright 2025 NetKnights GmbH
-** Author: Nils Behlen
-**
-**    Licensed under the Apache License, Version 2.0 (the "License");
-**    you may not use this file except in compliance with the License.
-**    You may obtain a copy of the License at
-**
-**        http://www.apache.org/licenses/LICENSE-2.0
-**
-**    Unless required by applicable law or agreed to in writing, software
-**    distributed under the License is distributed on an "AS IS" BASIS,
-**    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-**    See the License for the specific language governing permissions and
-**    limitations under the License.
-**
-** * * * * * * * * * * * * * * * * * * */
-
 #pragma once
-#include "PIConfig.h"
-#include "PIResponse.h"
-#include "Mode.h"
-#include <credentialprovider.h>
 
-struct WindowsInfo {
-	DWORD major;
-	DWORD minor;
-	DWORD build;
-	bool isServer;
-	std::string versionString;
-};
+#include "Mode.h"
+#include <Windows.h>
+#include <credentialprovider.h>
+#include <string>
 
 class Configuration
 {
 public:
-	Configuration() = default;
-
-	Configuration(const Configuration&) = delete;
-	Configuration& operator=(const Configuration&) = delete;
-
-	Configuration(Configuration&&) = delete;
-	Configuration& operator=(Configuration&&) = delete;
-
-	~Configuration()
-	{
-		if (!autoLogonPassword.empty())
-		{
-			SecureZeroMemory(&autoLogonPassword[0], autoLogonPassword.size() * sizeof(wchar_t));
-		}
-	}
-
 	void Load();
-
-	void LogConfig();
-
-	std::string ValidateAcceptLanguage(std::wstring configEntry);
-
-	PIConfig piconfig;
-
-	template<typename... Modes>
-	bool IsModeOneOf(Modes... modes) const noexcept
-	{
-		return ((mode == modes) || ...);
-	}
-
-	inline std::string ModeToString(Mode m)
-	{
-		switch (m)
-		{
-		case Mode::NO_CHANGE:						return "NO_CHANGE";
-		case Mode::CHANGE_PASSWORD:					return "CHANGE_PASSWORD";
-		case Mode::USERNAME:						return "USERNAME";
-		case Mode::PASSWORD:						return "PASSWORD";
-		case Mode::USERNAMEPASSWORD:				return "USERNAMEPASSWORD";
-		case Mode::PRIVACYIDEA:						return "PRIVACYIDEA";
-		case Mode::SEC_KEY_ANY:						return "SEC_KEY_ANY";
-		case Mode::PASSKEY:							return "PASSKEY";
-		case Mode::SEC_KEY_REG:						return "SEC_KEY_REG";
-		case Mode::SEC_KEY_REG_PIN:					return "SEC_KEY_REG_PIN";
-		case Mode::SEC_KEY_PIN:						return "SEC_KEY_PIN";
-		case Mode::SEC_KEY_NO_PIN:					return "SEC_KEY_NO_PIN";
-		case Mode::SEC_KEY_NO_DEVICE:				return "SEC_KEY_NO_DEVICE";
-		case Mode::SEC_KEY_SET_PIN:					return "SEC_KEY_SET_PIN";
-		case Mode::SEC_KEY_SELECT_USER:				return "SEC_KEY_SELECT_USER";
-		default:									return "UNKNOWN_MODE";
-		}
-	}
-
-	bool IsCredentialComplete() const noexcept
-	{
-		return !credential.username.empty() && !credential.password.empty() && !credential.domain.empty();
-	}
-
-	inline std::string ModeString()
-	{
-		return ModeToString(mode);
-	}
-
-	bool IsPasswordInFirstStep() const noexcept
-	{
-		return twoStepSendPassword || usernamePassword;
-	}
-
-	bool IsAutoLogonConfigured() const noexcept
-	{
-		return !autoLogonUsername.empty() && !autoLogonPassword.empty() && !autoLogonDomain.empty();
-	}
-
-	bool IsFirstStep() const noexcept
-	{
-		return mode == Mode::USERNAME || mode == Mode::USERNAMEPASSWORD || mode == Mode::NO_CHANGE;
-	}
-
-	Mode GetFirstStepMode() const noexcept
-	{
-		if (twoStepSendPassword || usernamePassword)
-		{
-			return Mode::USERNAMEPASSWORD;
-		}
-		return Mode::USERNAME;
-	}
-
-	// FIDO2
-	bool usePasskey = false;		// Online
-	bool useOfflineFIDO = false;	// Offline
-	bool disablePasskey = false;
-	bool passkeyFirstStep = false;
-
-	std::wstring bitmapPath = L"";
-
-	// Add locales files path
-	std::wstring localesPath = L"";
-	std::string language = "";
-
-	bool usernamePassword = false;
-	bool twoStepSendPassword = false;
-	bool twoStepSendEmptyPassword = false;
-
-	bool hideFullName = false;
-	bool hideDomainName = false;
-
-	bool showDomainHint = false;
-	bool prefillUsername = false;
-
-	bool showResetLink = false;
+	void ClearSecrets();
+	~Configuration() { ClearSecrets(); }
 
 	bool debugLog = false;
-	bool hideFirstStepResponseError = false;
 	bool noDefault = false;
-
-	WindowsInfo windowsVersion;
-
-	bool pushAuthenticationSuccess = false;
-
 	bool isRemoteSession = false;
+	Mode mode = Mode::USERNAME_PASSWORD;
 
-	bool doAutoLogon = false;
-
-	// Save the last response and the last response with challenge, in case lastResponse is an error/fail to be able
-	// to show the challenges again
-	std::optional<PIResponse> lastResponse;
-	std::optional<PIResponse> lastResponseWithChallenge;
-	std::string lastTransactionId = "";
-
-	std::wstring excludedAccount = L"";
-	std::wstring excludedGroup = L"";
-	std::wstring exludedGroupNetBIOSaddress = L"";
-
-	bool clearFields = true;
-	bool bypassPrivacyIDEA = false;
-
-	// Offline
-	int offlineTreshold = 20;
-	bool offlineShowInfo = true;
-	bool checkAllOfflineCredentials = false;
-
-	// FIDO / WebAuthn
-	bool webAuthnPreferred = false;
-	bool webAuthnOfflineNoPIN = false;
-	std::vector<std::wstring> trustedRPIDs;
-	// If true, offer FIDO Authentication in the second step if there is offline data for the user.
-	// In that case, the link will take the text from the online variant, to look the same to the user,
-	// but will use the offline data
-	bool webAuthnOfflineSecondStep = false;
-	bool webAuthnOfflinePreferred = false;
-	bool webAuthnOfflineHideFirstStep = false;
-	bool useWindowsHelloForCredUI = true;
-	bool libfidoDebug = false;
-
-	bool otpFailReturnToFirstStep = false;
-
-	// Autologon like https://learn.microsoft.com/en-us/troubleshoot/windows-server/user-profiles-and-logon/turn-on-automatic-logon
-	std::wstring autoLogonUsername = L"";
-	std::wstring autoLogonDomain = L"";
-	std::wstring autoLogonPassword = L"";
-
-	bool resolveUPN = false;
-
-	// Track the current state
-	Mode mode = Mode::NO_CHANGE;
-
-	struct PROVIDER
+	struct ProviderState
 	{
-		ICredentialProviderEvents* pCredentialProviderEvents = nullptr;
-		UINT_PTR upAdviseContext = 0;
-
-		CREDENTIAL_PROVIDER_USAGE_SCENARIO cpu = CPUS_INVALID;
-		DWORD credPackFlags = 0;
-
-		// Possibly read-write
-		PWSTR* status_text = nullptr;
-		CREDENTIAL_PROVIDER_STATUS_ICON* status_icon = nullptr;
-
-		// Read-only
-		wchar_t** field_strings = nullptr;
+		ICredentialProviderEvents* events = nullptr;
+		UINT_PTR context = 0;
+		CREDENTIAL_PROVIDER_USAGE_SCENARIO scenario = CPUS_INVALID;
+		DWORD flags = 0;
 	} provider;
 
-	struct CREDENTIAL
+	struct CredentialState
 	{
-		std::wstring username = L"";
-		std::wstring domain = L"";
-		std::wstring password = L"";
-		std::wstring otp = L"";
-		std::wstring upn = L"";
-		std::wstring fido2PIN = L"";
-
+		std::wstring username;
+		std::wstring domain;
+		std::wstring password;
+		std::wstring fidoPin;
+		std::wstring newPassword1;
+		std::wstring newPassword2;
 		bool passwordMustChange = false;
-		bool passwordChanged = false;
-
-		std::wstring newPassword1 = L"";
-		std::wstring newPassword2 = L"";
-		
-		// Force explicit default construction
-		CREDENTIAL() = default;
-
-		// Delete copy operations to prevent accidental plaintext duplication in memory
-		CREDENTIAL(const CREDENTIAL&) = delete;
-		CREDENTIAL& operator=(const CREDENTIAL&) = delete;
-
-		// Delete move operations
-		CREDENTIAL(CREDENTIAL&&) = delete;
-		CREDENTIAL& operator=(CREDENTIAL&&) = delete;
-
-		~CREDENTIAL()
-		{
-			if (!password.empty()) SecureZeroMemory(&password[0], password.size() * sizeof(wchar_t));
-			if (!otp.empty()) SecureZeroMemory(&otp[0], otp.size() * sizeof(wchar_t));
-			if (!fido2PIN.empty()) SecureZeroMemory(&fido2PIN[0], fido2PIN.size() * sizeof(wchar_t));
-			if (!newPassword1.empty()) SecureZeroMemory(&newPassword1[0], newPassword1.size() * sizeof(wchar_t));
-			if (!newPassword2.empty()) SecureZeroMemory(&newPassword2[0], newPassword2.size() * sizeof(wchar_t));
-		}
 	} credential;
 };

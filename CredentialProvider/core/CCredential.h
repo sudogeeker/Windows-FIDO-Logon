@@ -1,198 +1,89 @@
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
-**
-** Copyright	2012 Dominik Pretzsch
-**				2017 NetKnights GmbH
-**
-** Author		Dominik Pretzsch
-**				Nils Behlen
-**
-**    Licensed under the Apache License, Version 2.0 (the "License");
-**    you may not use this file except in compliance with the License.
-**    You may obtain a copy of the License at
-**
-**        http://www.apache.org/licenses/LICENSE-2.0
-**
-**    Unless required by applicable law or agreed to in writing, software
-**    distributed under the License is distributed on an "AS IS" BASIS,
-**    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-**    See the License for the specific language governing permissions and
-**    limitations under the License.
-**
-** * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-
 #pragma once
 
-#include "Dll.h"
-#include "Utilities.h"
+#include "BrokerClient.h"
 #include "Configuration.h"
-#include "PrivacyIDEA.h"
+#include "Dll.h"
 #include "FIDODevice.h"
-#include <scenario.h>
-#include <unknwn.h>
-#include <helpers.h>
-#include <string>
-#include <map>
+#include "helpers.h"
+#include "scenario.h"
+
+#include <credentialprovider.h>
+#include <memory>
 #include <optional>
-
-#define NOT_EMPTY(NAME) \
-	(NAME != NULL && NAME[0] != NULL)
-
-#define ZERO(NAME) \
-	SecureZeroMemory(NAME, sizeof(NAME))
+#include <string>
+#include <vector>
 
 class CCredential : public IConnectableCredentialProviderCredential
 {
 public:
-	// IUnknown
-	IFACEMETHODIMP_(ULONG) AddRef() noexcept override
-	{
-		return ++_cRef;
-	}
-
+	IFACEMETHODIMP_(ULONG) AddRef() noexcept override { return InterlockedIncrement(&_references); }
 	IFACEMETHODIMP_(ULONG) Release() noexcept override
 	{
-		LONG cRef = --_cRef;
-		if (!cRef)
-		{
-			// The Credential is owned by the Provider object
-		}
-		return cRef;
+		const LONG value = InterlockedDecrement(&_references);
+		if (!value) delete this;
+		return value;
 	}
-
-#pragma warning( disable : 4838 )
-	IFACEMETHODIMP QueryInterface(__in REFIID riid, __deref_out void** ppv) noexcept override
+	IFACEMETHODIMP QueryInterface(REFIID riid, void** value) noexcept override
 	{
-		static const QITAB qit[] =
-		{
-			QITABENT(CCredential, ICredentialProviderCredential), // IID_ICredentialProviderCredential
-			QITABENT(CCredential, IConnectableCredentialProviderCredential), // IID_IConnectableCredentialProviderCredential
-			{ 0 },
+		static const QITAB interfaces[] = {
+			QITABENT(CCredential, ICredentialProviderCredential),
+			QITABENT(CCredential, IConnectableCredentialProviderCredential),
+			{ 0 }
 		};
-
-		return QISearch(this, qit, riid, ppv);
+		return QISearch(this, interfaces, riid, value);
 	}
-public:
-	// ICredentialProviderCredential
-	IFACEMETHODIMP Advise(__in ICredentialProviderCredentialEvents* pcpce) override;
+
+	IFACEMETHODIMP Advise(ICredentialProviderCredentialEvents* events) override;
 	IFACEMETHODIMP UnAdvise() override;
-
-	IFACEMETHODIMP SetSelected(__out BOOL* pbAutoLogon) override;
+	IFACEMETHODIMP SetSelected(BOOL* autoLogon) override;
 	IFACEMETHODIMP SetDeselected() override;
+	IFACEMETHODIMP GetFieldState(DWORD field, CREDENTIAL_PROVIDER_FIELD_STATE* state,
+		CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE* interactive) override;
+	IFACEMETHODIMP GetStringValue(DWORD field, PWSTR* value) override;
+	IFACEMETHODIMP GetBitmapValue(DWORD field, HBITMAP* bitmap) override;
+	IFACEMETHODIMP GetCheckboxValue(DWORD, BOOL*, PWSTR*) override { return E_NOTIMPL; }
+	IFACEMETHODIMP GetComboBoxValueCount(DWORD field, DWORD* count, DWORD* selected) override;
+	IFACEMETHODIMP GetComboBoxValueAt(DWORD field, DWORD item, PWSTR* value) override;
+	IFACEMETHODIMP GetSubmitButtonValue(DWORD field, DWORD* adjacentTo) override;
+	IFACEMETHODIMP SetStringValue(DWORD field, PCWSTR value) override;
+	IFACEMETHODIMP SetCheckboxValue(DWORD, BOOL) override { return E_NOTIMPL; }
+	IFACEMETHODIMP SetComboBoxSelectedValue(DWORD field, DWORD selected) override;
+	IFACEMETHODIMP CommandLinkClicked(DWORD) override { return E_NOTIMPL; }
+	IFACEMETHODIMP GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* response,
+		CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* serialization, PWSTR* statusText,
+		CREDENTIAL_PROVIDER_STATUS_ICON* statusIcon) override;
+	IFACEMETHODIMP ReportResult(NTSTATUS status, NTSTATUS substatus, PWSTR* statusText,
+		CREDENTIAL_PROVIDER_STATUS_ICON* statusIcon) override;
+	IFACEMETHODIMP Connect(IQueryContinueWithStatus* query) override;
+	IFACEMETHODIMP Disconnect() override { return S_OK; }
 
-	IFACEMETHODIMP GetFieldState(__in DWORD dwFieldID,
-		__out CREDENTIAL_PROVIDER_FIELD_STATE* pcpfs,
-		__out CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE* pcpfis) override;
-
-	IFACEMETHODIMP GetStringValue(__in DWORD dwFieldID, __deref_out PWSTR* ppwsz) override;
-	IFACEMETHODIMP GetBitmapValue(__in DWORD dwFieldID, __out HBITMAP* phbmp) override;
-	IFACEMETHODIMP GetCheckboxValue(__in DWORD dwFieldID, __out BOOL* pbChecked, __deref_out PWSTR* ppwszLabel) override;
-	IFACEMETHODIMP GetComboBoxValueCount(__in DWORD dwFieldID, __out DWORD* pcItems, __out_range(< , *pcItems) DWORD* pdwSelectedItem) override;
-	IFACEMETHODIMP GetComboBoxValueAt(__in DWORD dwFieldID, __in DWORD dwItem, __deref_out PWSTR* ppwszItem) override;
-	IFACEMETHODIMP GetSubmitButtonValue(__in DWORD dwFieldID, __out DWORD* pdwAdjacentTo) override;
-
-	IFACEMETHODIMP SetStringValue(__in DWORD dwFieldID, __in PCWSTR pwz) override;
-	IFACEMETHODIMP SetCheckboxValue(__in DWORD dwFieldID, __in BOOL bChecked) override;
-	IFACEMETHODIMP SetComboBoxSelectedValue(__in DWORD dwFieldID, __in DWORD dwSelectedItem) override;
-	IFACEMETHODIMP CommandLinkClicked(__in DWORD dwFieldID) override;
-
-	IFACEMETHODIMP GetSerialization(__out CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
-		__out CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
-		__deref_out_opt PWSTR* ppwszOptionalStatusText,
-		__out CREDENTIAL_PROVIDER_STATUS_ICON* pcpsiOptionalStatusIcon) override;
-
-	IFACEMETHODIMP ReportResult(__in NTSTATUS ntsStatus,
-		__in NTSTATUS ntsSubstatus,
-		__deref_out_opt PWSTR* ppwszOptionalStatusText,
-		__out CREDENTIAL_PROVIDER_STATUS_ICON* pcpsiOptionalStatusIcon) override;
-
-public:
-	// IConnectableCredentialProviderCredential 
-	IFACEMETHODIMP Connect(__in IQueryContinueWithStatus* pqcws) override;
-	IFACEMETHODIMP Disconnect() override;
-
-	CCredential(std::shared_ptr<Configuration> c);
-	virtual ~CCredential();
-
-public:
-	HRESULT Initialize(
-		__in const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* rgcpfd,
-		__in const FIELD_STATE_PAIR* rgfsp,
-		__in_opt PWSTR userName,
-		__in_opt PWSTR domainName,
-		__in_opt PWSTR password);
-
-	HRESULT StopPoll();
-
-	// Called when UnAdvise is called for the Provider.
-	// This happens when there is inactivity while logging in and the screen goes into "locked mode".
+	explicit CCredential(std::shared_ptr<Configuration> configuration);
+	~CCredential();
+	HRESULT Initialize(const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* descriptors,
+		const FIELD_STATE_PAIR* states, PWSTR username, PWSTR domain, PWSTR password);
 	HRESULT FullReset();
 
 private:
 	HRESULT SetMode(Mode mode);
-	std::wstring ResolveUpnToNetBios(const std::wstring& upn);
-	HRESULT ResetMode(bool resetToFirstStep = false);
-	bool AttemptStartPasskey();
-	HRESULT SetDomainHint(std::wstring domain);
+	void SetStatus(const std::wstring& text, IQueryContinueWithStatus* query = nullptr);
+	void ResetMfa();
+	HRESULT PackLogon(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* response,
+		CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* serialization);
+	HRESULT PackPasswordChange(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* response,
+		CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* serialization);
+	static HRESULT ReplaceFieldString(PWSTR& destination, PCWSTR source);
 
-	HRESULT SetOfflineInfo(std::string username);
-
-	Mode SelectFIDOMode(std::string userVerification = "", bool offline = false);
-
-	void ShowErrorMessage(const std::wstring& message, const HRESULT& code = 0);
-
-	void PushAuthenticationCallback(const PIResponse& response);
-
-	HBITMAP CreateBitmapFromBase64PNG(const std::wstring& base64);
-
-	bool CheckExcludedAccount();
-
-	HRESULT FIDOAuthentication(IQueryContinueWithStatus* pqcws);
-
-	HRESULT FIDORegistration(IQueryContinueWithStatus* pqcws);
-
-	HRESULT EvaluateResponse(PIResponse& response);
-
-	HRESULT LoadBitmapFromPathOrResource(const std::wstring& bitmapPath, HBITMAP* phbmp);
-
-	HRESULT SetDefaultBitmap();
-
-	bool IsRpIdAllowed(const std::string& rpId);
-
-	std::optional<FIDODevice> GetPreferredFIDODevice();
-
-	// Waits until a FIDO2 device is found or the search is cancelled. If the search is cancelled, an empty optional is returned
-	// and _fidoDeviceSearchCancelled is set to true.
-	// Checks every 200ms if a device is found. Default timeout is 5 minutes.
-	std::optional<FIDODevice> WaitForFIDODevice(IQueryContinueWithStatus* pqcws, int timeoutMs = 300000);
-
-	LONG _cRef;
-	// An array holding the type and name of each field in the tile.
-	CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR _rgCredProvFieldDescriptors[FID_NUM_FIELDS];
-
-	// An array holding the state of each field in the tile.
-	FIELD_STATE_PAIR _rgFieldStatePairs[FID_NUM_FIELDS];
-
-	// An array holding the string value of each field. This is different from the name of 
-	// the field held in _rgCredProvFieldDescriptors.
-	wchar_t* _rgFieldStrings[FID_NUM_FIELDS];
-	ICredentialProviderCredentialEvents* _pCredProvCredentialEvents = nullptr;
-	DWORD _dwComboIndex;
-	PrivacyIDEA	_privacyIDEA;
-	std::shared_ptr<Configuration> _config;
-	Utilities _util;
-	std::wstring _initialDomain;
-	int _lastStatus = S_OK;
-	bool _privacyIDEASuccess = false;
-	bool _fidoDeviceSearchCancelled = false;
-	bool _modeSwitched = false;
-	std::optional<FIDOSignRequest> _passkeyChallenge = std::nullopt;
-	bool _passkeyRegistrationFailed = false;
-
-	FIDOSignResponse _currentSignResponse;
-	DWORD _selectedAssertionIndex = 0;
-
-	// Flag to indicate that the FID_OTP field should be hidden
-	// TODO should be modes?
-	bool _pollEnrollmentInProgress = false;
-	bool _enrollmentInProgress = false;
+	LONG _references = 1;
+	std::shared_ptr<Configuration> _configuration;
+	CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR _descriptors[FID_NUM_FIELDS]{};
+	FIELD_STATE_PAIR _states[FID_NUM_FIELDS]{};
+	PWSTR _strings[FID_NUM_FIELDS]{};
+	ICredentialProviderCredentialEvents* _events = nullptr;
+	localfido::BrokerClient _broker;
+	std::optional<localfido::AuthenticationChallenge> _challenge;
+	std::vector<FIDODevice> _devices;
+	DWORD _selectedDevice = 0;
+	std::wstring _sid;
+	bool _mfaComplete = false;
+	bool _passwordChangeAuthorized = false;
 };

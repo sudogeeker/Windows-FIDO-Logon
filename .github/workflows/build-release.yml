@@ -1,0 +1,104 @@
+name: Build, test, and release
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: windows-fido-logon-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows x64 Release
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      VCPKG_FEATURE_FLAGS: manifests,versions
+      VCPKG_COMMIT: d015e31e90838a4c9dfa3eed45979bc70d9357fc
+      WIX_VERSION: '3.14.1'
+      WIX_SHA256: 6AC824E1642D6F7277D0ED7EA09411A508F6116BA6FAE0AA5F2C7DAA2FF43D31
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned WiX binaries
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'wix314-binaries.zip'
+          $wixRoot = Join-Path $env:RUNNER_TEMP 'wix314'
+          Invoke-WebRequest -Uri 'https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip' -OutFile $archive
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          if ($actual -ne $env:WIX_SHA256) { throw "WiX archive hash mismatch: $actual" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $wixRoot
+          "WIX_ROOT=$wixRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Bootstrap pinned vcpkg
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          git init $root
+          git -C $root remote add origin https://github.com/microsoft/vcpkg.git
+          git -C $root fetch --depth 1 origin $env:VCPKG_COMMIT
+          git -C $root checkout --detach FETCH_HEAD
+          & (Join-Path $root 'bootstrap-vcpkg.bat') -disableMetrics
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $root 'vcpkg.exe'))) {
+            throw 'Pinned vcpkg bootstrap failed.'
+          }
+          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build, test, audit, and package
+        shell: pwsh
+        run: |
+          $arguments = @{
+            Configuration = 'Release'
+            WixRoot = $env:WIX_ROOT
+          }
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $arguments.Tag = $env:GITHUB_REF_NAME
+          }
+          .\build.ps1 @arguments
+
+      - name: Upload tested MSI
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: WindowsFidoLogon-x64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish unsigned release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download tested MSI
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: WindowsFidoLogon-x64
+          path: release
+
+      - name: Attest release provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/*.msi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" release/* --verify-tag --generate-notes
+          --notes "The Windows binaries and MSI in this release are not Authenticode-signed. Verify the published SHA-256 checksum and GitHub artifact attestation before testing."

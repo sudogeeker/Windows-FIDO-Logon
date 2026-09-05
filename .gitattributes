@@ -1,0 +1,3 @@
+vcpkg-overlays/**/*.diff text eol=lf -whitespace
+*.wxs text eol=lf
+*.wxi text eol=lf

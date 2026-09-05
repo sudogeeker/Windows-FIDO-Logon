@@ -1,56 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
-**
-** Copyright	2012 Dominik Pretzsch
-**				2025 NetKnights GmbH
-**
-** Author		Dominik Pretzsch
-**				Nils Behlen
-**
-**    Licensed under the Apache License, Version 2.0 (the "License");
-**    you may not use this file except in compliance with the License.
-**    You may obtain a copy of the License at
-**
-**        http://www.apache.org/licenses/LICENSE-2.0
-**
-**    Unless required by applicable law or agreed to in writing, software
-**    distributed under the License is distributed on an "AS IS" BASIS,
-**    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-**    See the License for the specific language governing permissions and
-**    limitations under the License.
-**
-** * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
--->
 <Include>
-  <!-- <?define Version = "0.2.1023" ?> -->
-  <!-- Getting version from CredentialProvider set in versioning\version.h -->
-  <?define Version = "!(bind.fileVersion.CredentialProvider)" ?>
-
-  <?define ProviderRegistryGUID = "7BAF541E-F8E0-4EDF-B69A-BD2771139E8E" ?>
-  <?define ProviderFilterRegistryGUID = "34065473-D75F-4BC2-9782-E98E63ED0D41" ?>
-  
-  <?define BaseProductName = "PrivacyIDEA Credential Provider" ?>
-  <?define Manufacturer = "Netknights GmbH" ?>
-  
-  <?define Publisher = "Netknights GmbH" ?>
-  <?define AppURLInfoAbout = "http://www.privacyidea.org" ?>
-  
-  <?define ProductFolderName = "PrivacyIDEA Credential Provider" ?>
-  <?define SimpleProductName = "PrivacyIDEA-CP" ?>
-
-  <!-- Locales files in ProgramData -->
-  <?define PlatformProgramDataFolder = "CommonAppDataFolder" ?>
-	
-  <?if $(var.Platform) = x64 ?>
-    <?define ProductName = "$(var.BaseProductName) $(var.Version) (64 bit)" ?>
-    <?define Win64 = "yes" ?>
-    <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
-    <?define PlatformSystemFolder = "System64Folder" ?>
-  <?else ?>
-    <?define ProductName = "$(var.BaseProductName) $(var.Version)" ?>
-    <?define Win64 = "no" ?>
-    <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
-    <?define PlatformSystemFolder = "SystemFolder" ?>
-  <?endif ?>
+  <?define Version = "1.0.0" ?>
+  <?define ProductName = "Windows FIDO Logon" ?>
+  <?define Publisher = "Windows FIDO Logon Contributors" ?>
+  <?define ProviderRegistryGUID = "A95D1C6B-8D9C-4E0F-A60D-CA6B569E28AD" ?>
+  <?define ProviderFilterRegistryGUID = "54B25B17-C7AE-4C2B-B3C4-E3B29A73D9B1" ?>
 </Include>

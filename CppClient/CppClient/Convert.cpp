@@ -1,338 +1,158 @@
-/* * * * * * * * * * * * * * * * * * * * *
-**
-** Copyright 2025 NetKnights GmbH
-** Author: Nils Behlen
-**
-**    Licensed under the Apache License, Version 2.0 (the "License");
-**    you may not use this file except in compliance with the License.
-**    You may obtain a copy of the License at
-**
-**        http://www.apache.org/licenses/LICENSE-2.0
-**
-**    Unless required by applicable law or agreed to in writing, software
-**    distributed under the License is distributed on an "AS IS" BASIS,
-**    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-**    See the License for the specific language governing permissions and
-**    limitations under the License.
-**
-** * * * * * * * * * * * * * * * * * * */
+/*
+ * Copyright 2024-2025 NetKnights GmbH
+ * Licensed under the Apache License, Version 2.0.
+ */
 
 #include "Convert.h"
-#include "Logger.h"
-#include <codecvt>
-#include <sstream>
-#include <algorithm>
-#include <iomanip>
-#include <iostream>
+
 #include <Windows.h>
+#include <algorithm>
+#include <cstdint>
+#include <limits>
 
-std::string Convert::ToString(const std::wstring& ws)
+namespace
 {
-	if (ws.empty()) return std::string();
+	constexpr char kBase64Alphabet[] =
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-	// Get the required buffer size
-	int size_needed = WideCharToMultiByte(CP_UTF8, 0, ws.data(), (int)ws.size(), NULL, 0, NULL, NULL);
-	if (size_needed <= 0) return std::string();
+	int Base64Value(const unsigned char value)
+	{
+		if (value >= 'A' && value <= 'Z') return value - 'A';
+		if (value >= 'a' && value <= 'z') return value - 'a' + 26;
+		if (value >= '0' && value <= '9') return value - '0' + 52;
+		if (value == '+') return 62;
+		if (value == '/') return 63;
+		return -1;
+	}
 
-	// Allocate the string and perform the conversion
-	std::string result(size_needed, 0);
-	WideCharToMultiByte(CP_UTF8, 0, ws.data(), (int)ws.size(), result.data(), size_needed, NULL, NULL);
+	std::vector<unsigned char> DecodeBase64Strict(const std::string& input)
+	{
+		if (input.empty()) return {};
 
+		size_t padding = 0;
+		while (padding < input.size() && input[input.size() - 1 - padding] == '=') ++padding;
+		if (padding > 2) return {};
+		const size_t encodedLength = input.size() - padding;
+		if (encodedLength % 4 == 1) return {};
+		if (padding != 0)
+		{
+			if (input.size() % 4 != 0) return {};
+			const size_t requiredPadding = (4 - (encodedLength % 4)) % 4;
+			if (requiredPadding != padding) return {};
+		}
+
+		std::vector<unsigned char> decoded;
+		decoded.reserve((encodedLength * 6) / 8);
+		uint32_t accumulator = 0;
+		int bits = 0;
+		int lastValue = 0;
+		for (size_t index = 0; index < encodedLength; ++index)
+		{
+			const int value = Base64Value(static_cast<unsigned char>(input[index]));
+			if (value < 0) return {};
+			lastValue = value;
+			accumulator = (accumulator << 6) | static_cast<uint32_t>(value);
+			bits += 6;
+			if (bits >= 8)
+			{
+				bits -= 8;
+				decoded.push_back(static_cast<unsigned char>((accumulator >> bits) & 0xff));
+			}
+		}
+
+		// Reject alternate encodings whose unused trailing bits are non-zero.
+		if ((encodedLength % 4 == 2 && (lastValue & 0x0f) != 0) ||
+			(encodedLength % 4 == 3 && (lastValue & 0x03) != 0)) return {};
+		return decoded;
+	}
+}
+
+std::string Convert::ToString(const std::wstring& value)
+{
+	if (value.empty()) return {};
+	if (value.size() > static_cast<size_t>(std::numeric_limits<int>::max())) return {};
+	const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
+		static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+	if (required <= 0) return {};
+	std::string result(static_cast<size_t>(required), '\0');
+	if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
+		result.data(), required, nullptr, nullptr) != required) return {};
 	return result;
 }
 
-std::wstring Convert::ToWString(const std::string& s)
+std::wstring Convert::ToWString(const std::string& value)
 {
-	if (s.empty()) return std::wstring();
-
-	// Get the required buffer size
-	int size_needed = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), NULL, 0);
-	if (size_needed <= 0) return std::wstring();
-
-	// Allocate the wide string and perform the conversion
-	std::wstring result(size_needed, 0);
-	MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), result.data(), size_needed);
-
+	if (value.empty()) return {};
+	if (value.size() > static_cast<size_t>(std::numeric_limits<int>::max())) return {};
+	const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+		static_cast<int>(value.size()), nullptr, 0);
+	if (required <= 0) return {};
+	std::wstring result(static_cast<size_t>(required), L'\0');
+	if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
+		result.data(), required) != required) return {};
 	return result;
 }
 
-std::string Convert::ToString(const bool b)
+std::vector<unsigned char> Convert::Base64Decode(const std::string& value)
 {
-	return b ? std::string("true") : std::string("false");
+	return DecodeBase64Strict(value);
 }
 
-std::wstring Convert::ToUpperCase(std::wstring s)
+std::vector<unsigned char> Convert::Base64URLDecode(const std::string& value)
 {
-	std::transform(s.begin(), s.end(), s.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::toupper(c)); });
-	return s;
-}
-
-std::string Convert::ToUpperCase(std::string s)
-{
-	std::transform(s.begin(), s.end(), s.begin(), [](char c) { return static_cast<char>(std::toupper(c)); });
-	return s;
-}
-
-std::string Convert::LongToHexString(long in)
-{
-	std::stringstream ss;
-	ss << std::hex << in;
-	return "0x" + ss.str();
-}
-
-std::wstring Convert::JoinW(const std::vector<std::wstring>& elements, const wchar_t* separator)
-{
-	std::wstringstream os;
-	for (std::vector<std::wstring>::const_iterator iter = elements.begin(); iter != elements.end(); ++iter)
+	if (value.empty() || value.size() % 4 == 1) return {};
+	std::string base64;
+	base64.reserve(value.size());
+	for (const unsigned char character : value)
 	{
-		os << *iter;
-		if (iter + 1 != elements.end())
+		if ((character >= 'A' && character <= 'Z') ||
+			(character >= 'a' && character <= 'z') ||
+			(character >= '0' && character <= '9'))
 		{
-			os << separator;
+			base64.push_back(static_cast<char>(character));
 		}
+		else if (character == '-') base64.push_back('+');
+		else if (character == '_') base64.push_back('/');
+		else return {};
 	}
-	return os.str();
+	return DecodeBase64Strict(base64);
 }
 
-std::vector<unsigned char> Convert::Base64Decode(const std::string& base64String)
+std::string Convert::Base64Encode(const unsigned char* data, const size_t size, const bool padded)
 {
-	static const std::string base64_chars =
-		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-		"abcdefghijklmnopqrstuvwxyz"
-		"0123456789+/";
-
-	std::vector<unsigned char> decoded_data;
-	size_t in_len = base64String.size();
-	int i = 0;
-	int j = 0;
-	int in_ = 0;
-	unsigned char char_array_4[4]{};
-	unsigned char char_array_3[3]{};
-
-	while (in_len-- && (base64String[in_] != '=') && (isalnum(base64String[in_]) 
-		|| (base64String[in_] == '+') || (base64String[in_] == '/')))
+	if (data == nullptr && size != 0) return {};
+	std::string result;
+	result.reserve(((size + 2) / 3) * 4);
+	for (size_t index = 0; index < size; index += 3)
 	{
-		char_array_4[i++] = base64String[in_];
-		in_++;
-		if (i == 4)
-		{
-			for (i = 0; i < 4; i++)
-			{
-				char_array_4[i] = base64_chars.find(char_array_4[i]);
-			}
-				
-			char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-			char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-			char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
-
-			for (i = 0; i < 3; i++)
-			{
-				decoded_data.push_back(char_array_3[i]);
-			}
-				
-			i = 0;
-		}
+		const uint32_t first = data[index];
+		const uint32_t second = index + 1 < size ? data[index + 1] : 0;
+		const uint32_t third = index + 2 < size ? data[index + 2] : 0;
+		const uint32_t block = (first << 16) | (second << 8) | third;
+		result.push_back(kBase64Alphabet[(block >> 18) & 0x3f]);
+		result.push_back(kBase64Alphabet[(block >> 12) & 0x3f]);
+		if (index + 1 < size) result.push_back(kBase64Alphabet[(block >> 6) & 0x3f]);
+		else if (padded) result.push_back('=');
+		if (index + 2 < size) result.push_back(kBase64Alphabet[block & 0x3f]);
+		else if (padded) result.push_back('=');
 	}
-
-	if (i)
-	{
-		for (j = i; j < 4; j++)
-		{
-			char_array_4[j] = 0;
-		}
-
-		for (j = 0; j < 4; j++)
-		{
-			char_array_4[j] = base64_chars.find(char_array_4[j]);
-		}
-
-		char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-		char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-		char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
-
-		for (j = 0; j < i - 1; j++)
-		{
-			decoded_data.push_back(char_array_3[j]);
-		}
-	}
-
-	return decoded_data;
+	return result;
 }
 
-std::vector<unsigned char> Convert::Base64URLDecode(const std::string& base64String)
-{
-	std::string base64 = base64String;
-	Convert::Base64URLToBase64(base64);
-	return Base64Decode(base64);
-}
-
-std::string Convert::Base64Encode(const unsigned char* data, const size_t size, bool padded)
-{
-	static const std::string base64_chars =
-		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-		"abcdefghijklmnopqrstuvwxyz"
-		"0123456789+/";
-
-	size_t count = size;
-	std::string encoded_string;
-	int i = 0;
-	int j = 0;
-	unsigned char char_array_3[3]{};
-	unsigned char char_array_4[4]{};
-
-	while (count--)
-	{
-		char_array_3[i++] = *(data++);
-		if (i == 3)
-		{
-			char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-			char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-			char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
-			char_array_4[3] = char_array_3[2] & 0x3f;
-
-			for (i = 0; i < 4; i++)
-			{
-				encoded_string += base64_chars[char_array_4[i]];
-			}
-				
-			i = 0;
-		}
-	}
-
-	if (i)
-	{
-		for (j = i; j < 3; j++)
-		{
-			char_array_3[j] = '\0';
-		}
-
-		char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-		char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-		char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
-		char_array_4[3] = char_array_3[2] & 0x3f;
-
-		for (j = 0; j < i + 1; j++)
-		{
-			encoded_string += base64_chars[char_array_4[j]];
-		}
-			
-		if (padded)
-		{
-			while (i++ < 3)
-			{
-				encoded_string += '=';
-			}
-		}
-	}
-
-	return encoded_string;
-}
-
-std::string Convert::Base64Encode(const std::vector<unsigned char>& data, bool padded)
+std::string Convert::Base64Encode(const std::vector<unsigned char>& data, const bool padded)
 {
 	return Base64Encode(data.data(), data.size(), padded);
 }
 
-std::string Convert::Base64URLEncode(const unsigned char* data, const size_t size, bool padded)
+std::string Convert::Base64URLEncode(const unsigned char* data, const size_t size, const bool padded)
 {
-	std::string base64 = Base64Encode(data, size, padded);
-	Convert::Base64ToBase64URL(base64);
-	return base64;
+	std::string result = Base64Encode(data, size, padded);
+	std::replace(result.begin(), result.end(), '+', '-');
+	std::replace(result.begin(), result.end(), '/', '_');
+	return result;
 }
 
-std::string Convert::Base64URLEncode(const std::vector<unsigned char>& data, bool padded)
+std::string Convert::Base64URLEncode(const std::vector<unsigned char>& data, const bool padded)
 {
 	return Base64URLEncode(data.data(), data.size(), padded);
-}
-
-char* Convert::UnicodeToCodePage(int codePage, const wchar_t* src)
-{
-	if (!src) return 0;
-	int srcLen = (int)wcslen(src);
-	if (!srcLen)
-	{
-		char* x = new char[1];
-		x[0] = '\0';
-		return x;
-	}
-
-	int requiredSize = WideCharToMultiByte(codePage,
-		0,
-		src, srcLen, 0, 0, 0, 0);
-
-	if (!requiredSize)
-	{
-		return 0;
-	}
-
-	char* x = new char[(LONGLONG)requiredSize + 1];
-	x[requiredSize] = 0;
-
-	int retval = WideCharToMultiByte(codePage,
-		0,
-		src, srcLen, x, requiredSize, 0, 0);
-	if (!retval)
-	{
-		delete[] x;
-		return nullptr;
-	}
-
-	return x;
-}
-
-void Convert::Base64ToBase64URL(std::string& base64)
-{
-	std::replace(base64.begin(), base64.end(), '+', '-');
-	std::replace(base64.begin(), base64.end(), '/', '_');
-}
-
-void Convert::Base64URLToBase64(std::string& base64URL)
-{
-	std::replace(base64URL.begin(), base64URL.end(), '-', '+');
-	std::replace(base64URL.begin(), base64URL.end(), '_', '/');
-}
-
-void Convert::Base64ToABase64(std::string& base64)
-{
-	std::replace(base64.begin(), base64.end(), '.', '+');
-}
-
-std::string Convert::BytesToHex(std::vector<unsigned char> bytes)
-{
-	return BytesToHex(bytes.data(), bytes.size());
-}
-
-std::string Convert::BytesToHex(const unsigned char* data, const size_t dataSize)
-{
-	std::stringstream ss;
-	for (unsigned char c : std::vector<unsigned char>(data, data + dataSize))
-	{
-		ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c);
-	}
-	return ss.str();
-}
-
-std::vector<unsigned char> Convert::HexToBytes(const std::string& hexString)
-{
-	std::vector<unsigned char> binaryData;
-	for (size_t i = 0; i < hexString.length(); i += 2)
-	{
-		std::string byteString = hexString.substr(i, 2);
-		unsigned char byte = static_cast<unsigned char>(std::stoi(byteString, nullptr, 16));
-		binaryData.push_back(byte);
-	}
-	return binaryData;
-}
-
-std::string Convert::ReplaceAll(const std::string& input, const std::string& target, const std::string& replacement)
-{
-	// Replace all occurences of target in input with replacement
-	std::string result = input;
-	size_t pos = 0;
-	while ((pos = result.find(target, pos)) != std::string::npos)
-	{
-		result.replace(pos, target.length(), replacement);
-		pos += replacement.length();
-	}
-	return result;
 }
