@@ -11,6 +11,15 @@ $compiled = @(
 )
 
 $projectText = ($compiled | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join "`n"
+$sharedProps = Get-Content -LiteralPath (Join-Path $root 'WindowsFidoLogon.props') -Raw
+foreach ($project in $compiled) {
+    if ((Get-Content -LiteralPath $project -Raw) -notmatch [regex]::Escape('$(SolutionDir)WindowsFidoLogon.props')) {
+        throw "C++ project does not import the shared dependency paths: $project"
+    }
+}
+foreach ($required in @('vcpkg_installed\$(VcpkgTriplet)', 'AdditionalIncludeDirectories', 'AdditionalLibraryDirectories', 'NOMINMAX')) {
+    if ($sharedProps -notmatch [regex]::Escape($required)) { throw "Shared C++ build properties missing: $required" }
+}
 $forbiddenLibraries = @('winhttp.lib', 'wininet.lib', 'httpapi.lib', 'urlmon.lib', 'ws2_32.lib', 'wldap32.lib', 'winscard.lib')
 foreach ($library in $forbiddenLibraries) {
     if ($projectText -match [regex]::Escape($library)) { throw "Forbidden network/NFC dependency present: $library" }

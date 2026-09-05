@@ -70,7 +70,7 @@ namespace
 std::string Convert::ToString(const std::wstring& value)
 {
 	if (value.empty()) return {};
-	if (value.size() > static_cast<size_t>(std::numeric_limits<int>::max())) return {};
+	if (value.size() > static_cast<size_t>((std::numeric_limits<int>::max)())) return {};
 	const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
 		static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
 	if (required <= 0) return {};
@@ -83,7 +83,7 @@ std::string Convert::ToString(const std::wstring& value)
 std::wstring Convert::ToWString(const std::string& value)
 {
 	if (value.empty()) return {};
-	if (value.size() > static_cast<size_t>(std::numeric_limits<int>::max())) return {};
+	if (value.size() > static_cast<size_t>((std::numeric_limits<int>::max)())) return {};
 	const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
 		static_cast<int>(value.size()), nullptr, 0);
 	if (required <= 0) return {};
