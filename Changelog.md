@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.2
+
+- Block installation, upgrade, repair, and uninstall while MFA is enabled, including silent setup.
+- Keep the MSI UpgradeCode and component identities stable; replace older releases and equal-version rebuilds instead of installing duplicate products.
+- Keep the LogonUI small-text area blank, shorten English and Chinese prompts, and report password rejection only for a Windows wrong-password result.
+- Clear the security-key PIN from provider memory and the LogonUI input after use, retry, cancellation, and device changes.
+- Include Windows error codes in Broker password-validation failures and distinguish local-account resolution errors.
+- Add credential UI regression coverage and verify that Manager password prompts preserve Unicode and whitespace across the UI/worker boundary.
+
 ## 1.0.1
 
 - Require the current Windows password for both MFA enablement and disablement, reject normal uninstall while MFA is active, harden installed component ACLs, and restart the Broker after service failure.

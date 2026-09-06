@@ -32,6 +32,16 @@ namespace
 		KillTimer(owner, timer);
 		PostMessageW(prompt, WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), reinterpret_cast<LPARAM>(GetDlgItem(prompt, IDCANCEL)));
 	}
+	const std::wstring testPassword = L" Test-密码-9! ";
+	void CALLBACK AcceptTestPrompt(HWND owner, UINT, UINT_PTR timer, DWORD)
+	{
+		HWND prompt = FindWindowW(L"WindowsFidoLogonPrompt", L"Test password");
+		if (!prompt) return;
+		auto state = reinterpret_cast<PromptState*>(GetWindowLongPtrW(prompt, GWLP_USERDATA));
+		SetWindowTextW(state->edit, testPassword.c_str());
+		KillTimer(owner, timer);
+		PostMessageW(prompt, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), reinterpret_cast<LPARAM>(GetDlgItem(prompt, IDOK)));
+	}
 	void PumpUntil(const std::function<bool()>& done)
 	{
 		const ULONGLONG deadline = GetTickCount64() + 5000;
@@ -145,6 +155,11 @@ namespace
 		Require(promptOnUi, "prompt created on worker");
 		Require(promptFits, "prompt controls overlap or clip");
 		Require(!promptAccepted && IsWindowEnabled(window), "cancel failed to restore owner");
+		SetTimer(window, 9, 10, AcceptTestPrompt);
+		Require(StartOperation(app, [&] { promptAccepted = Prompt(window, L"Test password", L"Test password entry", true, secret); }), "password prompt worker failed");
+		PumpUntil([&] { return !app.busy; });
+		Require(promptAccepted && secret == testPassword, "password changed between prompt and worker");
+		ClearSecret(secret);
 		releaseWorker = false;
 		Require(StartOperation(app, [&] {
 			while (!releaseWorker.load()) std::this_thread::sleep_for(std::chrono::milliseconds(5));

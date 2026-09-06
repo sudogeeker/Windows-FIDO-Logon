@@ -28,7 +28,7 @@ try {
         'WINDOWSMAJORVERSION = "#10"',
         'MfaFilterEnabledSearch',
         'MFAFILTERENABLED = "#1"',
-        'BlockMfaEnabledUninstall',
+        'BlockMfaEnabledMaintenance',
         'Before="InstallValidate"',
         'Secure="yes"',
         'ARPNOREPAIR',
@@ -43,8 +43,99 @@ try {
     if ($text -match 'VersionNT64\s*&gt;=\s*1000') {
         throw 'MSI contains the invalid Windows 10 version check (VersionNT64 >= 1000).'
     }
+    [xml]$document = $text
+    $product = @($document.GetElementsByTagName('Product'))[0]
+    $upgradeCode = '842EA4D9-6E63-4D18-9217-A4DBD1ED8728'
+    if ([guid]$product.UpgradeCode -ne [guid]$upgradeCode) { throw 'MSI product-family UpgradeCode changed.' }
+    if ([guid]$product.Id -eq [guid]::Empty) { throw 'MSI has no valid ProductCode.' }
+    # dark.exe emits MajorUpgrade but not the Upgrade table rows, so read the
+    # compiled MSI database to audit the actual version and sequence contracts.
+    $msiInstaller = New-Object -ComObject WindowsInstaller.Installer
+    $database = $null
+    try {
+        $database = $msiInstaller.OpenDatabase($msi, 0)
+        $upgradeView = $database.OpenView('SELECT `VersionMin`, `VersionMax`, `Attributes`, `ActionProperty` FROM `Upgrade`')
+        $upgradeRows = @()
+        try {
+            $upgradeView.Execute()
+            while ($record = $upgradeView.Fetch()) {
+                $upgradeRows += [pscustomobject]@{
+                    Minimum = $record.StringData(1)
+                    Maximum = $record.StringData(2)
+                    Attributes = [int]$record.StringData(3)
+                    Property = $record.StringData(4)
+                }
+            }
+        }
+        finally { $upgradeView.Close() }
+        $replacement = @($upgradeRows | Where-Object { $_.Property -eq 'WIX_UPGRADE_DETECTED' })
+        if ($replacement.Count -ne 1 -or $replacement[0].Maximum -ne $product.Version -or
+            ($replacement[0].Attributes -band 0x200) -eq 0 -or ($replacement[0].Attributes -band 0x2) -ne 0) {
+            throw 'MSI must replace older products and equal-version rebuilds in the same family.'
+        }
+        foreach ($oldVersion in @('1.0.0', '1.0.1', $product.Version)) {
+            if ([version]$oldVersion -gt [version]$replacement[0].Maximum -or
+                ($replacement[0].Minimum -and [version]$oldVersion -lt [version]$replacement[0].Minimum)) {
+                throw "MSI replacement range misses version $oldVersion."
+            }
+        }
+        $downgrade = @($upgradeRows | Where-Object { $_.Property -eq 'WIX_DOWNGRADE_DETECTED' })
+        if ($downgrade.Count -ne 1 -or $downgrade[0].Minimum -ne $product.Version -or
+            ($downgrade[0].Attributes -band 0x100) -ne 0 -or ($downgrade[0].Attributes -band 0x2) -eq 0) {
+            throw 'MSI newer-version detection is invalid.'
+        }
+        $sequenceView = $database.OpenView('SELECT `Sequence` FROM `InstallExecuteSequence` WHERE `Action` = ''RemoveExistingProducts''')
+        try {
+            $sequenceView.Execute()
+            $removeExisting = @()
+            while ($record = $sequenceView.Fetch()) { $removeExisting += [int]$record.StringData(1) }
+        }
+        finally { $sequenceView.Close() }
+        if ($removeExisting.Count -ne 1 -or $removeExisting[0] -ne 6501) {
+            throw 'MSI must remove the previous product immediately after InstallExecute.'
+        }
+    }
+    finally {
+        if ($database) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($database) }
+        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($msiInstaller)
+    }
+
+    $launchGate = @($document.GetElementsByTagName('Condition') | Where-Object { $_.InnerText -match 'MFAFILTERENABLED' })
+    $executeGate = @($document.GetElementsByTagName('Custom') | Where-Object { $_.Action -eq 'BlockMfaEnabledMaintenance' })
+    if ($launchGate.Count -ne 1 -or $executeGate.Count -ne 1) { throw 'MSI MFA guards are missing or ambiguous.' }
+    # Evaluate the actual compiled conditions without running any installer action.
+    $installer = New-Object -ComObject WindowsInstaller.Installer
+    $session = $null
+    try {
+        $session = $installer.OpenPackage($msi, 1)
+        $cases = @(
+            @{ Installed = ''; REMOVE = ''; UPGRADINGPRODUCTCODE = ''; WIX_UPGRADE_DETECTED = '' },
+            @{ Installed = ''; REMOVE = ''; UPGRADINGPRODUCTCODE = ''; WIX_UPGRADE_DETECTED = '{00000000-0000-0000-0000-000000000001}' },
+            @{ Installed = '1'; REMOVE = ''; UPGRADINGPRODUCTCODE = ''; WIX_UPGRADE_DETECTED = '' },
+            @{ Installed = '1'; REMOVE = 'ALL'; UPGRADINGPRODUCTCODE = ''; WIX_UPGRADE_DETECTED = '' },
+            @{ Installed = '1'; REMOVE = 'ALL'; UPGRADINGPRODUCTCODE = '{00000000-0000-0000-0000-000000000002}'; WIX_UPGRADE_DETECTED = '' }
+        )
+        foreach ($case in $cases) {
+            foreach ($property in $case.Keys) { $session.Property($property) = $case[$property] }
+            foreach ($uiLevel in @('2', '5')) {
+                $session.Property('UILevel') = $uiLevel
+                foreach ($mfa in @('', '#0', '#1')) {
+                    $session.Property('MFAFILTERENABLED') = $mfa
+                    $blocked = $mfa -eq '#1'
+                    $allowedResult = [int]$session.EvaluateCondition($launchGate[0].InnerText.Trim())
+                    $blockedResult = [int]$session.EvaluateCondition($executeGate[0].InnerText.Trim())
+                    if ($allowedResult -ne [int](-not $blocked) -or $blockedResult -ne [int]$blocked) {
+                        throw "MSI MFA guard failed: UILevel=$uiLevel, MFA=$mfa, scenario=$($case | ConvertTo-Json -Compress)"
+                    }
+                }
+            }
+        }
+    }
+    finally {
+        if ($session) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($session) }
+        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer)
+    }
     if ($BuildDirectory) {
-        [xml]$document = $text
         $fileIds = [ordered]@{
             'WindowsFidoLogonCredentialProvider.dll' = 'CredentialProvider'
             'WindowsFidoLogonFilter.dll' = 'CredentialProviderFilter'

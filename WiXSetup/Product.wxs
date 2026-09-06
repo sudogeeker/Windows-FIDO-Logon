@@ -3,11 +3,13 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
      xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <?include Config.wxi?>
+  <!-- Keep UpgradeCode and component GUIDs stable across releases. ProductCode
+       and PackageCode identify each build; equal-version rebuilds replace it. -->
   <Product Id="*" Name="$(var.ProductName)" Manufacturer="$(var.Publisher)" Language="1033"
            Version="$(var.Version)" UpgradeCode="842EA4D9-6E63-4D18-9217-A4DBD1ED8728">
-    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" InstallPrivileges="elevated"
+    <Package Id="*" InstallerVersion="500" Compressed="yes" InstallScope="perMachine" InstallPrivileges="elevated"
              Platform="x64" Description="Local password plus USB FIDO2 MFA for Windows 10/11 local accounts" />
-    <MajorUpgrade Schedule="afterInstallExecute"
+    <MajorUpgrade Schedule="afterInstallExecute" AllowSameVersionUpgrades="yes"
                   DowngradeErrorMessage="A newer Windows FIDO Logon version is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="ProductIcon.ico" SourceFile="$(var.SolutionDir)assets\key.ico" />
@@ -29,14 +31,14 @@
     </Property>
     <Condition Message="Windows FIDO Logon requires 64-bit Windows 10 or Windows 11.">Installed OR WINDOWSMAJORVERSION = &quot;#10&quot;</Condition>
     <Condition Message="Administrator privileges are required.">Privileged</Condition>
-    <Condition Message="MFA is enabled. Open Windows FIDO Logon Manager, disable MFA with the current Windows password, and then uninstall again.">
-      NOT (Installed AND REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND MFAFILTERENABLED = &quot;#1&quot;)
+    <Condition Message="MFA is enabled. Disable MFA in Windows FIDO Logon Manager before installing, updating, or uninstalling.">
+      MFAFILTERENABLED &lt;&gt; &quot;#1&quot;
     </Condition>
-    <CustomAction Id="BlockMfaEnabledUninstall"
-                  Error="MFA is enabled. Open Windows FIDO Logon Manager, disable MFA with the current Windows password, and then uninstall again." />
+    <CustomAction Id="BlockMfaEnabledMaintenance"
+                  Error="MFA is enabled. Disable MFA in Windows FIDO Logon Manager before installing, updating, or uninstalling." />
     <InstallExecuteSequence>
-      <Custom Action="BlockMfaEnabledUninstall" Before="InstallValidate">
-        Installed AND REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND MFAFILTERENABLED = &quot;#1&quot;
+      <Custom Action="BlockMfaEnabledMaintenance" Before="InstallValidate">
+        MFAFILTERENABLED = &quot;#1&quot;
       </Custom>
     </InstallExecuteSequence>
 

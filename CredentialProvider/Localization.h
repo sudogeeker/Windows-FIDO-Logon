@@ -3,6 +3,7 @@
 #include "scenario.h"
 
 #include <Windows.h>
+#include <string>
 
 enum class UiLanguage
 {
@@ -20,6 +21,7 @@ enum class UiTextId
 	WindowsPasswordLabel,
 	SecurityKeyPinLabel,
 	UsbSecurityKeyLabel,
+	Fido2UsbSecurityKeyFallback,
 	NewPasswordLabel,
 	ConfirmPasswordLabel,
 	ContinueButton,
@@ -27,19 +29,19 @@ enum class UiTextId
 	ChangePasswordButton,
 	SelectUserAndPasswordPrompt,
 	LocalAccountsOnly,
-	MfaServiceUnavailable,
+	SignInVerificationUnavailable,
 	MfaPolicyUnavailable,
-	PasswordAccepted,
-	NoRegisteredKey,
+	PreparingWindowsSignIn,
+	NoSecurityKeyDetected,
 	SelectKeyAndTouch,
 	EnterPinAndTouch,
 	TouchKey,
 	KeyVerificationFailed,
-	KeyServiceRejected,
+	KeyVerificationIncomplete,
 	KeyVerified,
-	PasswordsMismatch,
+	PasswordUpdateFailed,
 	PasswordMustChange,
-	PasswordRejected,
+	PasswordVerificationFailed,
 	SignInFailed,
 	Count,
 };
@@ -47,3 +49,4 @@ enum class UiTextId
 UiLanguage CurrentUiLanguage() noexcept;
 PCWSTR UiText(UiTextId id) noexcept;
 PCWSTR UiFieldLabel(FIELD_ID field) noexcept;
+std::wstring UiSecurityKeyDisplayName(const std::string& manufacturer, const std::string& product);

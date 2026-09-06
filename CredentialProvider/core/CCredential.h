@@ -56,7 +56,7 @@ public:
 	IFACEMETHODIMP ReportResult(NTSTATUS status, NTSTATUS substatus, PWSTR* statusText,
 		CREDENTIAL_PROVIDER_STATUS_ICON* statusIcon) override;
 	IFACEMETHODIMP Connect(IQueryContinueWithStatus* query) override;
-	IFACEMETHODIMP Disconnect() override { return S_OK; }
+	IFACEMETHODIMP Disconnect() override;
 
 	explicit CCredential(std::shared_ptr<Configuration> configuration);
 	~CCredential();
@@ -66,8 +66,9 @@ public:
 
 private:
 	HRESULT SetMode(Mode mode);
-	void SetStatus(const std::wstring& text, IQueryContinueWithStatus* query = nullptr);
+	void SetStatus(const std::wstring& text, IQueryContinueWithStatus* query);
 	void ResetMfa();
+	void ClearPin();
 	HRESULT PackLogon(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* response,
 		CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* serialization);
 	HRESULT PackPasswordChange(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* response,

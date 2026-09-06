@@ -13,6 +13,7 @@ function Read-VersionPart([string]$name) {
 }
 
 $version = '{0}.{1}.{2}' -f (Read-VersionPart 'VERSION_MAJOR'), (Read-VersionPart 'VERSION_MINOR'), (Read-VersionPart 'VERSION_BUILD')
+if ((Read-VersionPart 'VERSION_REVISION') -ne '0') { throw 'MSI ignores the fourth version field; increment the three-part release version instead.' }
 $wix = Get-Content -LiteralPath (Join-Path $root 'WiXSetup\Config.wxi') -Raw
 $wixMatch = [regex]::Match($wix, '<\?define\s+Version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*\?>')
 if (-not $wixMatch.Success -or $wixMatch.Groups[1].Value -ne $version) {

@@ -507,9 +507,10 @@ bool BrokerService::Handle(const Caller& caller, json& request, json& response)
 			SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t));
 			throw std::runtime_error("target is not the current local account");
 		}
-		const bool passwordOk = localfido::ValidateLocalPassword(resolvedName, password);
+		DWORD passwordError = ERROR_SUCCESS;
+		const bool passwordOk = localfido::ValidateLocalPassword(resolvedName, password, &passwordError);
 		SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t));
-		if (!passwordOk) throw std::runtime_error("Windows password validation failed");
+		if (!passwordOk) throw std::runtime_error("Windows password validation failed (Windows error " + std::to_string(passwordError) + ").");
 
 		auto account = _store.FindAccount(sid);
 		if (account && account->credentials.size() >= kMaximumCredentialsPerAccount)
@@ -634,9 +635,11 @@ bool BrokerService::Handle(const Caller& caller, json& request, json& response)
 		if (!IsSameSid(caller.sid, sid)) { SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t)); throw std::runtime_error("access denied"); }
 		std::wstring resolvedName, computer, resolvedSid;
 		const bool localAccount = localfido::ResolveLocalAccount(username, resolvedName, computer, resolvedSid) && IsSameSid(sid, resolvedSid);
-		const bool passwordOk = localAccount && localfido::ValidateLocalPassword(resolvedName, password);
+		DWORD passwordError = ERROR_SUCCESS;
+		const bool passwordOk = localAccount && localfido::ValidateLocalPassword(resolvedName, password, &passwordError);
 		SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t));
-		if (!passwordOk) throw std::runtime_error("Windows password validation failed");
+		if (!localAccount) throw std::runtime_error("Unable to resolve the current local account.");
+		if (!passwordOk) throw std::runtime_error("Windows password validation failed (Windows error " + std::to_string(passwordError) + ").");
 		auto account = _store.FindAccount(sid);
 		if (!account || account->credentials.empty()) throw std::runtime_error("account has no registered credentials");
 		if (account->enforced && account->credentials.size() <= 1) throw std::runtime_error("enforced accounts must retain at least one credential");
@@ -671,9 +674,11 @@ bool BrokerService::Handle(const Caller& caller, json& request, json& response)
 		}
 		std::wstring resolvedName, computer, resolvedSid;
 		const bool localAccount = localfido::ResolveLocalAccount(username, resolvedName, computer, resolvedSid) && IsSameSid(sid, resolvedSid);
-		const bool passwordOk = localAccount && localfido::ValidateLocalPassword(resolvedName, password);
+		DWORD passwordError = ERROR_SUCCESS;
+		const bool passwordOk = localAccount && localfido::ValidateLocalPassword(resolvedName, password, &passwordError);
 		SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t));
-		if (!passwordOk) throw std::runtime_error("Windows password validation failed");
+		if (!localAccount) throw std::runtime_error("Unable to resolve the current local account.");
+		if (!passwordOk) throw std::runtime_error("Windows password validation failed (Windows error " + std::to_string(passwordError) + ").");
 
 		auto account = _store.FindAccount(sid);
 		if (!account || account->credentials.empty()) throw std::runtime_error("account has no registered credentials");
@@ -710,9 +715,11 @@ bool BrokerService::Handle(const Caller& caller, json& request, json& response)
 		}
 		std::wstring resolvedName, computer, resolvedSid;
 		const bool localAccount = localfido::ResolveLocalAccount(username, resolvedName, computer, resolvedSid) && IsSameSid(sid, resolvedSid);
-		const bool passwordOk = localAccount && localfido::ValidateLocalPassword(resolvedName, password);
+		DWORD passwordError = ERROR_SUCCESS;
+		const bool passwordOk = localAccount && localfido::ValidateLocalPassword(resolvedName, password, &passwordError);
 		SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t));
-		if (!passwordOk) throw std::runtime_error("Windows password validation failed");
+		if (!localAccount) throw std::runtime_error("Unable to resolve the current local account.");
+		if (!passwordOk) throw std::runtime_error("Windows password validation failed (Windows error " + std::to_string(passwordError) + ").");
 		const bool enabled = request.at("enabled").get<bool>();
 		if (enabled)
 		{

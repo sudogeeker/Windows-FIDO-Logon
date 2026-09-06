@@ -101,7 +101,7 @@ HRESULT CCredential::Initialize(const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* desc
 		_configuration->credential.domain = _users.front().computerName;
 	}
 	ReplaceFieldString(_strings[FID_LARGE_TEXT], UiText(UiTextId::Title));
-	ReplaceFieldString(_strings[FID_SMALL_TEXT], UiText(UiTextId::SelectUserAndPassword));
+	ReplaceFieldString(_strings[FID_SMALL_TEXT], UiText(UiTextId::SelectUserAndPasswordPrompt));
 	ReplaceFieldString(_strings[FID_USERNAME], _configuration->credential.username.c_str());
 	ReplaceFieldString(_strings[FID_PASSWORD], _configuration->credential.password.c_str());
 	ReplaceFieldString(_strings[FID_SUBMIT_BUTTON], UiText(UiTextId::ContinueButton));
@@ -182,7 +182,8 @@ HRESULT CCredential::GetComboBoxValueAt(DWORD field, DWORD item, PWSTR* value)
 		return SHStrDupW(_users[item].username.c_str(), value);
 	}
 	if (field != FID_DEVICE_SELECT || item >= _devices.size()) return E_INVALIDARG;
-	return SHStrDupW(Convert::ToWString(_devices[item].ToString()).c_str(), value);
+	const std::wstring name = UiSecurityKeyDisplayName(_devices[item].GetManufacturer(), _devices[item].GetProduct());
+	return SHStrDupW(name.c_str(), value);
 }
 
 HRESULT CCredential::GetSubmitButtonValue(DWORD field, DWORD* adjacentTo)
@@ -225,6 +226,7 @@ HRESULT CCredential::SetComboBoxSelectedValue(DWORD field, DWORD selected)
 		return S_OK;
 	}
 	if (field != FID_DEVICE_SELECT || selected >= _devices.size()) return E_INVALIDARG;
+	if (selected != _selectedDevice) ClearPin();
 	_selectedDevice = selected;
 	return S_OK;
 }
@@ -265,10 +267,25 @@ void CCredential::ResetMfa()
 	_challenge.reset();
 	_devices.clear();
 	_selectedDevice = 0;
+	ClearPin();
+	SetStatus(L"", nullptr);
+}
+
+void CCredential::ClearPin()
+{
 	if (!_configuration->credential.fidoPin.empty())
 		SecureZeroMemory(_configuration->credential.fidoPin.data(), _configuration->credential.fidoPin.size() * sizeof(wchar_t));
 	_configuration->credential.fidoPin.clear();
-	ReplaceFieldString(_strings[FID_FIDO_PIN], L"");
+	// Clear the existing buffer without allocating, then clear LogonUI's copy.
+	if (_strings[FID_FIDO_PIN])
+		SecureZeroMemory(_strings[FID_FIDO_PIN], (wcslen(_strings[FID_FIDO_PIN]) + 1) * sizeof(wchar_t));
+	if (_events) _events->SetFieldString(this, FID_FIDO_PIN, L"");
+}
+
+HRESULT CCredential::Disconnect()
+{
+	ClearPin();
+	return S_OK;
 }
 
 HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
@@ -301,7 +318,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 			// transport or policy-read failure must never become password-only
 			// authentication, because a failed local registry read could otherwise
 			// be interpreted as "not enforced".
-			SetStatus(UiText(UiTextId::MfaServiceUnavailable), query);
+			SetStatus(UiText(UiTextId::SignInVerificationUnavailable), query);
 			return E_ACCESSDENIED;
 		}
 		if (!challenge.enforced)
@@ -312,7 +329,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 				return E_ACCESSDENIED;
 			}
 			_mfaComplete = true;
-			SetStatus(UiText(UiTextId::PasswordAccepted), query);
+			SetStatus(UiText(UiTextId::PreparingWindowsSignIn), query);
 			return S_OK;
 		}
 		_challenge = std::move(challenge);
@@ -320,7 +337,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 		if (_devices.empty())
 		{
 			ResetMfa();
-			SetStatus(UiText(UiTextId::NoRegisteredKey), query);
+			SetStatus(UiText(UiTextId::NoSecurityKeyDetected), query);
 			return HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_AVAILABLE);
 		}
 		if (_devices.size() > 1 || _devices.front().HasPin())
@@ -338,6 +355,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 	if (_selectedDevice >= _devices.size()) _selectedDevice = 0;
 	SetStatus(UiText(UiTextId::TouchKey), query);
 	std::string pin = Convert::ToString(_configuration->credential.fidoPin);
+	ClearPin();
 	FIDOSignResponse assertion;
 	const int fidoStatus = _devices[_selectedDevice].Sign(_challenge->request, _challenge->origin, pin, assertion);
 	if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size());
@@ -353,7 +371,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 	{
 		ResetMfa();
 		SetMode(Mode::USERNAME_PASSWORD);
-		SetStatus(UiText(UiTextId::KeyServiceRejected), query);
+		SetStatus(UiText(UiTextId::KeyVerificationIncomplete), query);
 		return E_ACCESSDENIED;
 	}
 	_mfaComplete = true;
@@ -430,7 +448,9 @@ HRESULT CCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESP
 		const HRESULT status = PackPasswordChange(response, serialization);
 		if (FAILED(status))
 		{
-			SHStrDupW(UiText(UiTextId::PasswordsMismatch), statusText);
+			const PCWSTR message = UiText(UiTextId::PasswordUpdateFailed);
+			SetStatus(message, nullptr);
+			SHStrDupW(message, statusText);
 			*statusIcon = CPSI_ERROR;
 		}
 		return S_OK;
@@ -451,6 +471,7 @@ HRESULT CCredential::ReportResult(NTSTATUS status, NTSTATUS substatus, PWSTR* st
 	if (!statusText || !statusIcon) return E_INVALIDARG;
 	*statusText = nullptr;
 	*statusIcon = CPSI_NONE;
+	ClearPin();
 	if (status == STATUS_SUCCESS)
 	{
 		ResetMfa();
@@ -467,8 +488,9 @@ HRESULT CCredential::ReportResult(NTSTATUS status, NTSTATUS substatus, PWSTR* st
 		_passwordChangeAuthorized = _mfaComplete;
 		_mfaComplete = false;
 		SetMode(Mode::CHANGE_PASSWORD);
-		SetStatus(UiText(UiTextId::PasswordMustChange));
-		SHStrDupW(UiText(UiTextId::PasswordMustChange), statusText);
+		const PCWSTR message = UiText(UiTextId::PasswordMustChange);
+		SetStatus(message, nullptr);
+		SHStrDupW(message, statusText);
 		*statusIcon = CPSI_WARNING;
 		return S_OK;
 	}
@@ -478,8 +500,10 @@ HRESULT CCredential::ReportResult(NTSTATUS status, NTSTATUS substatus, PWSTR* st
 	ReplaceFieldString(_strings[FID_PASSWORD], L"");
 	ReplaceFieldString(_strings[FID_NEW_PASS_1], L"");
 	ReplaceFieldString(_strings[FID_NEW_PASS_2], L"");
-	SetStatus(UiText(UiTextId::PasswordRejected));
-	SHStrDupW(UiText(UiTextId::SignInFailed), statusText);
+	const bool wrongPassword = status == STATUS_WRONG_PASSWORD || substatus == STATUS_WRONG_PASSWORD;
+	const PCWSTR message = UiText(wrongPassword ? UiTextId::PasswordVerificationFailed : UiTextId::SignInFailed);
+	SetStatus(message, nullptr);
+	SHStrDupW(message, statusText);
 	*statusIcon = CPSI_ERROR;
 	return S_OK;
 }
@@ -490,10 +514,9 @@ HRESULT CCredential::FullReset()
 	_passwordChangeAuthorized = false;
 	_configuration->ClearSecrets();
 	ReplaceFieldString(_strings[FID_PASSWORD], L"");
-	ReplaceFieldString(_strings[FID_FIDO_PIN], L"");
 	ReplaceFieldString(_strings[FID_NEW_PASS_1], L"");
 	ReplaceFieldString(_strings[FID_NEW_PASS_2], L"");
 	SetMode(Mode::USERNAME_PASSWORD);
-	SetStatus(UiText(UiTextId::SelectUserAndPassword));
+	SetStatus(UiText(UiTextId::SelectUserAndPasswordPrompt), nullptr);
 	return S_OK;
 }

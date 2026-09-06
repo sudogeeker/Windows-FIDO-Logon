@@ -8,6 +8,7 @@ $compiled = @(
     Join-Path $root 'Manager\Manager.vcxproj'
     Join-Path $root 'Tests\BrokerProtocolTests.vcxproj'
     Join-Path $root 'Tests\ManagerUiTests.vcxproj'
+    Join-Path $root 'Tests\CredentialUiTests.vcxproj'
     Join-Path $root 'Tests\FidoVerifierTests.vcxproj'
 )
 
@@ -135,7 +136,7 @@ foreach ($required in @('BuildProjectReferences=false', '-BuildDirectory $buildD
 }
 
 $installer = Get-Content -LiteralPath (Join-Path $root 'WiXSetup\Product.wxs') -Raw
-foreach ($required in @('Schedule="afterInstallExecute"', 'NeverOverwrite="yes"', 'ARPPRODUCTICON', 'ARPNOREPAIR', 'WindowsFidoLogonBroker', 'SafeBoot\Minimal', 'MFAFILTERENABLED', 'Secure="yes"', 'REMOVE = &quot;ALL&quot;', 'NOT UPGRADINGPRODUCTCODE', 'BlockMfaEnabledUninstall', 'Before="InstallValidate"', 'PermissionEx Sddl=', 'FirstFailureActionType="restart"', 'ForceDeleteOnUninstall="yes"')) {
+foreach ($required in @('Schedule="afterInstallExecute"', 'AllowSameVersionUpgrades="yes"', 'NeverOverwrite="yes"', 'ARPPRODUCTICON', 'ARPNOREPAIR', 'WindowsFidoLogonBroker', 'SafeBoot\Minimal', 'MFAFILTERENABLED', 'Secure="yes"', 'MFAFILTERENABLED &lt;&gt; &quot;#1&quot;', 'BlockMfaEnabledMaintenance', 'Before="InstallValidate"', 'PermissionEx Sddl=', 'FirstFailureActionType="restart"', 'ForceDeleteOnUninstall="yes"')) {
     if ($installer -notmatch [regex]::Escape($required)) { throw "Installer safety contract missing: $required" }
 }
 
