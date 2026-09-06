@@ -85,7 +85,7 @@ private:
 	std::optional<localfido::AuthenticationChallenge> _challenge;
 	std::vector<FIDODevice> _devices;
 	std::vector<localfido::LocalAccountInfo> _users;
-	DWORD _selectedDevice = 0;
+	std::optional<size_t> _selectedDevice;
 	DWORD _selectedUser = 0;
 	std::wstring _sid;
 	bool _mfaComplete = false;

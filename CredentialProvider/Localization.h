@@ -20,8 +20,6 @@ enum class UiTextId
 	LocalUserLabel,
 	WindowsPasswordLabel,
 	SecurityKeyPinLabel,
-	UsbSecurityKeyLabel,
-	Fido2UsbSecurityKeyFallback,
 	NewPasswordLabel,
 	ConfirmPasswordLabel,
 	ContinueButton,
@@ -33,7 +31,6 @@ enum class UiTextId
 	MfaPolicyUnavailable,
 	PreparingWindowsSignIn,
 	NoSecurityKeyDetected,
-	SelectKeyAndTouch,
 	EnterPinAndTouch,
 	TouchKey,
 	KeyVerificationFailed,
@@ -49,4 +46,3 @@ enum class UiTextId
 UiLanguage CurrentUiLanguage() noexcept;
 PCWSTR UiText(UiTextId id) noexcept;
 PCWSTR UiFieldLabel(FIELD_ID field) noexcept;
-std::wstring UiSecurityKeyDisplayName(const std::string& manufacturer, const std::string& product);

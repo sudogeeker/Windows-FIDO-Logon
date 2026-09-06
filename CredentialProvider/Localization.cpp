@@ -1,6 +1,5 @@
 #include "Localization.h"
 
-#include "Convert.h"
 #include "i18n/en-US.h"
 #include "i18n/zh-CN.h"
 
@@ -45,20 +44,9 @@ PCWSTR UiFieldLabel(FIELD_ID field) noexcept
 	case FID_USERNAME: return UiText(UiTextId::LocalUserLabel);
 	case FID_PASSWORD: return UiText(UiTextId::WindowsPasswordLabel);
 	case FID_FIDO_PIN: return UiText(UiTextId::SecurityKeyPinLabel);
-	case FID_DEVICE_SELECT: return UiText(UiTextId::UsbSecurityKeyLabel);
 	case FID_NEW_PASS_1: return UiText(UiTextId::NewPasswordLabel);
 	case FID_NEW_PASS_2: return UiText(UiTextId::ConfirmPasswordLabel);
 	case FID_SUBMIT_BUTTON: return UiText(UiTextId::ContinueButton);
 	default: return L"";
 	}
-}
-
-std::wstring UiSecurityKeyDisplayName(const std::string& manufacturer, const std::string& product)
-{
-	const std::wstring localizedManufacturer = Convert::ToWString(manufacturer);
-	const std::wstring localizedProduct = Convert::ToWString(product);
-	if (!localizedManufacturer.empty() && !localizedProduct.empty()) return localizedManufacturer + L" " + localizedProduct;
-	if (!localizedProduct.empty()) return localizedProduct;
-	if (!localizedManufacturer.empty()) return localizedManufacturer;
-	return UiText(UiTextId::Fido2UsbSecurityKeyFallback);
 }

@@ -6,6 +6,7 @@
 #include "FIDOSignResponse.h"
 
 #include <fido.h>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -15,6 +16,8 @@ class FIDODevice
 {
 public:
 	static std::vector<FIDODevice> GetDevices(bool log = true);
+	static int SelectByTouch(const std::vector<FIDODevice>& devices, size_t& selected,
+		const std::function<bool()>& shouldContinue = {});
 
 	FIDODevice(const fido_dev_info_t* info, bool log = true);
 	FIDODevice() = default;

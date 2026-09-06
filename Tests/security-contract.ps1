@@ -78,6 +78,21 @@ foreach ($required in @('kSessionLifetime', 'kMaximumSessions', 'kMaximumSession
 if ($runtimeText -match 'WinVerifyTrust|WTHelper|(?i)wintrust\.lib') {
     throw 'Runtime Credential Provider Filter inspection must not perform Authenticode validation.'
 }
+
+$credentialUi = (Get-Content -LiteralPath (Join-Path $root 'CredentialProvider\core\CCredential.cpp') -Raw) +
+    (Get-Content -LiteralPath (Join-Path $root 'CredentialProvider\scenario.h') -Raw) +
+    (Get-Content -LiteralPath (Join-Path $root 'CredentialProvider\Localization.cpp') -Raw)
+foreach ($forbidden in @('FID_DEVICE_SELECT', 'UiSecurityKeyDisplayName', 'GetManufacturer()', 'GetProduct()')) {
+    if ($credentialUi -match [regex]::Escape($forbidden)) { throw "LogonUI must not expose device identity: $forbidden" }
+}
+$fidoDevice = Get-Content -LiteralPath (Join-Path $root 'CppClient\CppClient\FIDODevice.cpp') -Raw
+foreach ($required in @('FIDODevice::SelectByTouch', 'fido_dev_get_touch_begin', 'fido_dev_get_touch_status', 'fido_dev_cancel')) {
+    if ($fidoDevice -notmatch [regex]::Escape($required)) { throw "Touch-selection contract missing: $required" }
+}
+$credential = Get-Content -LiteralPath (Join-Path $root 'CredentialProvider\core\CCredential.cpp') -Raw
+if ($credential -notmatch '(?s)SelectByTouch.*?_selectedDevice\s*=\s*selected.*?\.HasPin\(\).*?\.Sign\(') {
+    throw 'LogonUI must select by touch before exposing PIN or signing with a device.'
+}
 if ($broker -notmatch 'localfido::IsWindowsGenericFilter') { throw 'Broker must use shared built-in Filter recognition.' }
 
 $filter = Get-Content -LiteralPath (Join-Path $root 'CredentialProviderFilter\CCredentialProviderFilter.cpp') -Raw

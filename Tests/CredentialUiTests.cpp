@@ -102,10 +102,7 @@ namespace
 			"submit descriptor has a non-localized fallback");
 		Require(wcscmp(UiFieldLabel(FID_SUBMIT_BUTTON), UiText(UiTextId::ContinueButton)) == 0,
 			"submit descriptor does not use the localized continue label");
-		Require(UiSecurityKeyDisplayName({}, {}) == UiText(UiTextId::Fido2UsbSecurityKeyFallback),
-			"unnamed security key is not localized");
-		Require(UiSecurityKeyDisplayName("Vendor", "Model") == L"Vendor Model",
-			"security-key manufacturer and product are not preserved");
+		Require(FID_NUM_FIELDS == 9, "LogonUI unexpectedly exposes a security-key selector");
 
 		auto configuration = std::make_shared<Configuration>();
 		CredentialEvents events;

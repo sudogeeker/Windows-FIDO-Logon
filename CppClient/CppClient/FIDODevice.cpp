@@ -23,6 +23,8 @@ namespace
 {
 	constexpr size_t kMaximumDevices = 32;
 	constexpr int kCeremonyTimeoutMs = 120000;
+	constexpr DWORD kTouchPollIntervalMs = 200;
+	constexpr int kTouchStatusWaitMs = 50;
 
 	struct DeviceDeleter
 	{
@@ -111,6 +113,90 @@ std::vector<FIDODevice> FIDODevice::GetDevices(bool log)
 		if (device._isFido2 && device._supportsEs256) devices.push_back(std::move(device));
 	}
 	return devices;
+}
+
+int FIDODevice::SelectByTouch(const std::vector<FIDODevice>& devices, size_t& selected,
+	const std::function<bool()>& shouldContinue)
+{
+	selected = 0;
+	if (devices.size() < 2) return FIDO_ERR_INVALID_ARGUMENT;
+
+	struct Candidate
+	{
+		size_t index;
+		DevicePtr device;
+		bool pending = false;
+	};
+	std::vector<Candidate> candidates;
+	candidates.reserve(devices.size());
+	int lastError = FIDO_ERR_NOTFOUND;
+	for (size_t index = 0; index < devices.size(); ++index)
+	{
+		int status = FIDO_OK;
+		auto device = Open(devices[index]._path, status);
+		if (!device)
+		{
+			lastError = status;
+			continue;
+		}
+		candidates.push_back({ index, std::move(device), false });
+	}
+
+	auto cancelPending = [&]()
+	{
+		for (auto& candidate : candidates)
+		{
+			if (!candidate.pending) continue;
+			fido_dev_cancel(candidate.device.get());
+			candidate.pending = false;
+		}
+	};
+
+	size_t pendingCount = 0;
+	for (auto& candidate : candidates)
+	{
+		const int status = fido_dev_get_touch_begin(candidate.device.get());
+		if (status != FIDO_OK)
+		{
+			lastError = status;
+			continue;
+		}
+		candidate.pending = true;
+		++pendingCount;
+	}
+	if (pendingCount == 0) return lastError;
+
+	const ULONGLONG deadline = GetTickCount64() + kCeremonyTimeoutMs;
+	while (GetTickCount64() < deadline)
+	{
+		if (shouldContinue && !shouldContinue())
+		{
+			cancelPending();
+			return FIDO_ERR_KEEPALIVE_CANCEL;
+		}
+		Sleep(kTouchPollIntervalMs);
+		for (auto& candidate : candidates)
+		{
+			if (!candidate.pending) continue;
+			int touched = 0;
+			const int status = fido_dev_get_touch_status(candidate.device.get(), &touched, kTouchStatusWaitMs);
+			if (status != FIDO_OK)
+			{
+				lastError = status;
+				candidate.pending = false;
+				if (--pendingCount == 0) return lastError;
+				continue;
+			}
+			if (!touched) continue;
+			selected = candidate.index;
+			candidate.pending = false;
+			cancelPending();
+			return FIDO_OK;
+		}
+	}
+
+	cancelPending();
+	return FIDO_ERR_USER_ACTION_TIMEOUT;
 }
 
 FIDODevice::FIDODevice(const fido_dev_info_t* info, bool log)

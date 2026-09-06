@@ -167,10 +167,7 @@ HRESULT CCredential::GetComboBoxValueCount(DWORD field, DWORD* count, DWORD* sel
 		*selected = _selectedUser < _users.size() ? _selectedUser : 0;
 		return S_OK;
 	}
-	if (field != FID_DEVICE_SELECT) return E_INVALIDARG;
-	*count = static_cast<DWORD>(_devices.size());
-	*selected = _selectedDevice < _devices.size() ? _selectedDevice : 0;
-	return S_OK;
+	return E_INVALIDARG;
 }
 
 HRESULT CCredential::GetComboBoxValueAt(DWORD field, DWORD item, PWSTR* value)
@@ -181,9 +178,7 @@ HRESULT CCredential::GetComboBoxValueAt(DWORD field, DWORD item, PWSTR* value)
 		if (item >= _users.size()) return E_INVALIDARG;
 		return SHStrDupW(_users[item].username.c_str(), value);
 	}
-	if (field != FID_DEVICE_SELECT || item >= _devices.size()) return E_INVALIDARG;
-	const std::wstring name = UiSecurityKeyDisplayName(_devices[item].GetManufacturer(), _devices[item].GetProduct());
-	return SHStrDupW(name.c_str(), value);
+	return E_INVALIDARG;
 }
 
 HRESULT CCredential::GetSubmitButtonValue(DWORD field, DWORD* adjacentTo)
@@ -225,10 +220,7 @@ HRESULT CCredential::SetComboBoxSelectedValue(DWORD field, DWORD selected)
 		ResetMfa();
 		return S_OK;
 	}
-	if (field != FID_DEVICE_SELECT || selected >= _devices.size()) return E_INVALIDARG;
-	if (selected != _selectedDevice) ClearPin();
-	_selectedDevice = selected;
-	return S_OK;
+	return E_INVALIDARG;
 }
 
 void CCredential::SetStatus(const std::wstring& text, IQueryContinueWithStatus* query)
@@ -246,8 +238,6 @@ HRESULT CCredential::SetMode(Mode mode)
 	for (DWORD index = 0; index < FID_NUM_FIELDS; ++index)
 	{
 		_states[index] = requested[index];
-		if (mode == Mode::FIDO && index == FID_DEVICE_SELECT && _devices.size() <= 1)
-			_states[index] = { CPFS_HIDDEN, CPFIS_NONE };
 		if (_events)
 		{
 			_events->SetFieldState(this, index, _states[index].cpfs);
@@ -266,7 +256,7 @@ void CCredential::ResetMfa()
 	_mfaComplete = false;
 	_challenge.reset();
 	_devices.clear();
-	_selectedDevice = 0;
+	_selectedDevice.reset();
 	ClearPin();
 	SetStatus(L"", nullptr);
 }
@@ -340,11 +330,31 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 			SetStatus(UiText(UiTextId::NoSecurityKeyDetected), query);
 			return HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_AVAILABLE);
 		}
-		if (_devices.size() > 1 || _devices.front().HasPin())
+		if (_devices.size() > 1)
+		{
+			SetStatus(UiText(UiTextId::TouchKey), query);
+			size_t selected = 0;
+			const int selectionStatus = FIDODevice::SelectByTouch(_devices, selected, [query]()
+			{
+				return !query || query->QueryContinue() == S_OK;
+			});
+			if (selectionStatus != FIDO_OK)
+			{
+				ResetMfa();
+				SetMode(Mode::USERNAME_PASSWORD);
+				SetStatus(UiText(UiTextId::KeyVerificationFailed), query);
+				return E_ACCESSDENIED;
+			}
+			_selectedDevice = selected;
+		}
+		else
+		{
+			_selectedDevice = 0;
+		}
+		if (_devices[*_selectedDevice].HasPin())
 		{
 			SetMode(Mode::FIDO);
-			SetStatus(_devices.size() > 1 ? UiText(UiTextId::SelectKeyAndTouch)
-				: UiText(UiTextId::EnterPinAndTouch), query);
+			SetStatus(UiText(UiTextId::EnterPinAndTouch), query);
 			// A successful Connect lets LogonUI keep the newly displayed PIN fields.
 			// GetSerialization will intentionally return NO_CREDENTIAL_NOT_FINISHED
 			// until the security-key ceremony completes.
@@ -352,12 +362,18 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 		}
 	}
 
-	if (_selectedDevice >= _devices.size()) _selectedDevice = 0;
+	if (!_selectedDevice || *_selectedDevice >= _devices.size())
+	{
+		ResetMfa();
+		SetMode(Mode::USERNAME_PASSWORD);
+		SetStatus(UiText(UiTextId::KeyVerificationFailed), query);
+		return E_ACCESSDENIED;
+	}
 	SetStatus(UiText(UiTextId::TouchKey), query);
 	std::string pin = Convert::ToString(_configuration->credential.fidoPin);
 	ClearPin();
 	FIDOSignResponse assertion;
-	const int fidoStatus = _devices[_selectedDevice].Sign(_challenge->request, _challenge->origin, pin, assertion);
+	const int fidoStatus = _devices[*_selectedDevice].Sign(_challenge->request, _challenge->origin, pin, assertion);
 	if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size());
 	if (fidoStatus != FIDO_OK)
 	{
