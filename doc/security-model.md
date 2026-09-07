@@ -4,7 +4,7 @@
 
 - Broker sessions are random, caller-S SID-bound, valid for at most 120 seconds, and consumed before validation to prevent replay.
 - The Named Pipe ACL allows authenticated users to connect, while every operation is authorized using Named Pipe impersonation. Cross-SID management requires an elevated administrator where explicitly supported.
-- Registration accepts only discoverable CTAP2 ES256 credentials with UP and UV. Both `none` and `packed` attestation objects are parsed locally; `packed` signatures are verified, and every format must pass immediate new-key proof of possession.
+- Registration accepts only discoverable CTAP2 ES256 credentials with UP and UV. Both `none` and `packed` attestation objects are parsed locally; `packed` signatures are verified, adding any key is authorized by the current local account password only. No existing-key or post-registration assertion is required. The new key still performs its PIN/UV and touch ceremony to create the credential.
 - Assertions bind challenge, origin, RP ID, credential ID, and account SID. A non-zero signature counter that does not increase is rejected.
 - An enforced SID fails closed if the Broker, vault, USB device, PIN/UV, touch, or signature verification is unavailable.
 - The runtime has no TCP/HTTP listener or outbound-network feature.

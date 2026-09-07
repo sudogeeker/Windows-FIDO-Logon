@@ -273,7 +273,11 @@ namespace
 		const int status = device.Sign(challenge.request, challenge.origin, retainedPin, assertion);
 		if (status != FIDO_OK)
 		{
-			Error(owner, L"Security-key operation failed: " + Convert::ToWString(fido_strerr(status)));
+			if (status == FIDO_ERR_NO_CREDENTIALS)
+			{
+				Error(owner, L"This security key has no matching Windows FIDO Logon credential for this account. Use a registered key, or add this key in the manager first.");
+			}
+			else Error(owner, L"Security-key operation failed: " + Convert::ToWString(fido_strerr(status)));
 			return false;
 		}
 		return true;
@@ -449,30 +453,14 @@ namespace
 		std::wstring password, label;
 		if (!Prompt(app.window, L"Authorize enrollment", L"Enter your current Windows password:", true, password)) return false;
 		if (!Prompt(app.window, L"Name security key", L"Enter a label for this security key:", false, label)) { ClearSecret(password); return false; }
-		localfido::AuthenticationChallenge authorization;
 		localfido::RegistrationChallenge registration;
 		std::wstring error;
 		Progress(app.window, L"Authorizing enrollment...");
-		if (!app.broker.BeginRegistration(app.sid, app.username, password, Convert::ToString(label), authorization, registration, error))
+		if (!app.broker.BeginRegistration(app.sid, app.username, password, Convert::ToString(label), registration, error))
 		{
 			ClearSecret(password); Error(app.window, error); return false;
 		}
 		ClearSecret(password);
-		if (authorization.enforced)
-		{
-			Progress(app.window, L"Finding registered USB security keys...");
-			auto devices = FIDODevice::GetDevices();
-			auto selected = ChooseDevice(app.window, devices, L"Choose an already-registered key to authorize adding another key.");
-			if (!selected) return false;
-			std::string pin;
-			FIDOSignResponse assertion;
-			if (!SignChallenge(app.window, authorization, devices[*selected], pin, assertion)) { if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size()); return false; }
-			if (!app.broker.AuthorizeRegistration(authorization.sessionId, assertion, registration, error))
-			{
-				if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size()); Error(app.window, error); return false;
-			}
-			if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size());
-		}
 
 		Progress(app.window, L"Finding USB security keys...");
 		auto devices = FIDODevice::GetDevices();
@@ -519,16 +507,8 @@ namespace
 			Progress(app.window, L"Touch the new security key to register it...");
 			auto created = device.Register(request, registration.origin, pin);
 			if (!created) throw std::runtime_error("The authenticator did not return a credential.");
-			localfido::AuthenticationChallenge proof;
 			if (!app.broker.CommitRegistration(registration.sessionId, Convert::ToString(label), created->attestationObject,
-				created->clientDataJSON, proof, error)) throw std::runtime_error(Convert::ToString(error));
-			FIDOSignResponse proofAssertion;
-			if (!SignChallenge(app.window, proof, device, pin, proofAssertion))
-			{
-				if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size());
-				return false;
-			}
-			if (!app.broker.FinishRegistration(proof.sessionId, proofAssertion, error)) throw std::runtime_error(Convert::ToString(error));
+				created->clientDataJSON, error)) throw std::runtime_error(Convert::ToString(error));
 		}
 		catch (const std::exception& exception)
 		{
@@ -537,7 +517,7 @@ namespace
 			return false;
 		}
 		if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size());
-		ShowMessage(app.window, L"Security key registered and proof of possession verified.", L"Windows FIDO Logon", MB_OK | MB_ICONINFORMATION);
+		ShowMessage(app.window, L"Security key registered.", L"Windows FIDO Logon", MB_OK | MB_ICONINFORMATION);
 		return Refresh(app);
 	}
 

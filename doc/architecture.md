@@ -20,7 +20,7 @@ Each credential stores the owning SID, credential ID, exact COSE public key, alg
 
 ## Management ceremonies
 
-The first key requires the current Windows password. Once a key exists, adding a key requires the password plus an assertion from an existing key. Every registration is followed by an assertion from the newly created credential before the Broker commits it, which makes `none` attestation safe without an online metadata service.
+Adding any key requires only the current local account's Windows password for authorization. The new key creates a discoverable credential with PIN/UV and touch, and the Broker verifies the registration response and saves it directly. No existing-key assertion or additional new-key assertion is requested. With `none` attestation, the Broker validates the registration fields but does not independently verify possession of the private key during enrollment.
 
 Removal requires the current Windows password; it does not require a security key or PIN. Enabling or disabling MFA also requires the current Windows password, and the Broker binds the change to the elevated caller's local SID. Enforced accounts must retain at least one credential. The Manager runs elevated and sends policy changes directly to the Broker; it does not launch another elevated copy. When only one key is registered, it presents a single-key warning. The Windows GenericFilter is recognized by its CLSID and registered System32/credprovs.dll path, without loading the DLL or validating Authenticode signatures. Other global Credential Provider Filters require explicit administrator confirmation. Both Manager and Broker use the same recognition helper. This identifies an administrator-controlled registration; it does not establish publisher trust.
 

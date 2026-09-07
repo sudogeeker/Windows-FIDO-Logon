@@ -72,7 +72,16 @@ foreach ($required in @('VCPKG_ROOT_DIR', 'no-sock', 'Pinned upstream OpenSSL po
 }
 
 $broker = Get-Content -LiteralPath (Join-Path $root 'BrokerService\BrokerService.cpp') -Raw
-foreach ($required in @('kSessionLifetime', 'kMaximumSessions', 'kMaximumSessionsPerCaller', 'kPipeIoTimeoutMs', 'TakeSession', 'ImpersonateNamedPipeClient', 'FILE_FLAG_FIRST_PIPE_INSTANCE', 'FILE_FLAG_OVERLAPPED', 'PIPE_REJECT_REMOTE_CLIENTS', 'SecureZeroMemory', 'finish_registration', 'begin_remove', 'remove_with_password', 'finish_remove', 'policy state is inconsistent', 'policy changes are limited to the current user')) {
+$registrationStart = $broker.IndexOf('if (operation == "begin_registration")')
+$registrationEnd = $broker.IndexOf('if (operation == "begin_remove")', $registrationStart)
+$registrationFlow = $broker.Substring($registrationStart, $registrationEnd - $registrationStart)
+foreach ($required in @('IsSameSid(caller.sid, sid)', 'ValidateLocalPassword', 'if (!passwordOk)', 'SessionKind::Registration', 'VerifyRegistration', 'kMaximumCredentialsPerAccount', '_store.Save(current)')) {
+    if (-not $registrationFlow.Contains($required)) { throw "Password-authorized registration contract missing: $required" }
+}
+foreach ($forbidden in @('RegistrationAuthorization', 'RegistrationProof', 'VerifyAssertion', 'CreateAuthChallenge', 'authorize_registration', 'finish_registration')) {
+    if ($registrationFlow.Contains($forbidden)) { throw "Registration must not require an extra key assertion: $forbidden" }
+}
+foreach ($required in @('kSessionLifetime', 'kMaximumSessions', 'kMaximumSessionsPerCaller', 'kPipeIoTimeoutMs', 'TakeSession', 'ImpersonateNamedPipeClient', 'FILE_FLAG_FIRST_PIPE_INSTANCE', 'FILE_FLAG_OVERLAPPED', 'PIPE_REJECT_REMOTE_CLIENTS', 'SecureZeroMemory', 'begin_registration', 'commit_registration', 'begin_remove', 'remove_with_password', 'finish_remove', 'policy state is inconsistent', 'policy changes are limited to the current user')) {
     if ($broker -notmatch $required) { throw "Broker security contract missing: $required" }
 }
 if ($runtimeText -match 'WinVerifyTrust|WTHelper|(?i)wintrust\.lib') {

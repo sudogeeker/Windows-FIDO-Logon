@@ -229,7 +229,6 @@ bool localfido::BrokerClient::BeginRegistration(
 	const std::wstring& username,
 	const std::wstring& password,
 	const std::string& label,
-	AuthenticationChallenge& authorization,
 	RegistrationChallenge& registration,
 	std::wstring& error)
 {
@@ -246,21 +245,8 @@ bool localfido::BrokerClient::BeginRegistration(
 	if (!ok) return false;
 	try
 	{
-		if (response.value("authorizationRequired", false)) return ParseAuthenticationChallenge(response.at("authorization"), authorization);
 		return ParseRegistrationChallenge(response.at("registration"), registration);
 	}
-	catch (...) { error = L"Broker returned an invalid registration challenge."; return false; }
-}
-
-bool localfido::BrokerClient::AuthorizeRegistration(
-	const std::string& sessionId,
-	const FIDOSignResponse& assertion,
-	RegistrationChallenge& registration,
-	std::wstring& error)
-{
-	json response;
-	if (!Call({ {"op", "authorize_registration"}, {"sessionId", sessionId}, {"assertion", AssertionToJson(assertion)} }, response, error)) return false;
-	try { return ParseRegistrationChallenge(response.at("registration"), registration); }
 	catch (...) { error = L"Broker returned an invalid registration challenge."; return false; }
 }
 
@@ -269,7 +255,6 @@ bool localfido::BrokerClient::CommitRegistration(
 	const std::string& label,
 	const std::string& attestationObject,
 	const std::string& clientDataJson,
-	AuthenticationChallenge& proof,
 	std::wstring& error)
 {
 	json response;
@@ -277,14 +262,7 @@ bool localfido::BrokerClient::CommitRegistration(
 		{"op", "commit_registration"}, {"sessionId", sessionId}, {"label", label},
 		{"attestationObject", attestationObject}, {"clientDataJson", clientDataJson}
 	}, response, error)) return false;
-	try { return ParseAuthenticationChallenge(response.at("proof"), proof); }
-	catch (...) { error = L"Broker returned an invalid proof-of-possession challenge."; return false; }
-}
-
-bool localfido::BrokerClient::FinishRegistration(const std::string& sessionId, const FIDOSignResponse& proof, std::wstring& error)
-{
-	json response;
-	return Call({ {"op", "finish_registration"}, {"sessionId", sessionId}, {"assertion", AssertionToJson(proof)} }, response, error);
+	return true;
 }
 
 bool localfido::BrokerClient::BeginRemoval(

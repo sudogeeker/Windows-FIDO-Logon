@@ -16,7 +16,7 @@ public:
 	bool ProcessRequest(HANDLE pipe, const std::string& request, std::string& response);
 
 private:
-	enum class SessionKind { Authentication, RegistrationAuthorization, Registration, RegistrationProof, RemovalAuthorization };
+	enum class SessionKind { Authentication, Registration, RemovalAuthorization };
 	struct Session
 	{
 		SessionKind kind = SessionKind::Authentication;
@@ -28,7 +28,6 @@ private:
 		std::string origin;
 		std::string label;
 		std::string credentialToRemove;
-		localfido::CredentialRecord pendingCredential;
 		std::chrono::steady_clock::time_point expiresAt;
 	};
 

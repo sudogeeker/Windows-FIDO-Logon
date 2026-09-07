@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Include>
-  <?define Version = "1.0.2" ?>
+  <?define Version = "1.0.3" ?>
   <?define ProductName = "Windows FIDO Logon" ?>
   <?define Publisher = "Windows FIDO Logon Contributors" ?>
   <?define ProviderRegistryGUID = "A95D1C6B-8D9C-4E0F-A60D-CA6B569E28AD" ?>

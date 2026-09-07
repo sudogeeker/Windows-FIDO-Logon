@@ -29,12 +29,6 @@ namespace localfido
 			const std::wstring& username,
 			const std::wstring& password,
 			const std::string& label,
-			AuthenticationChallenge& authorization,
-			RegistrationChallenge& registration,
-			std::wstring& error);
-		bool AuthorizeRegistration(
-			const std::string& sessionId,
-			const FIDOSignResponse& response,
 			RegistrationChallenge& registration,
 			std::wstring& error);
 		bool CommitRegistration(
@@ -42,9 +36,7 @@ namespace localfido
 			const std::string& label,
 			const std::string& attestationObject,
 			const std::string& clientDataJson,
-			AuthenticationChallenge& proof,
 			std::wstring& error);
-		bool FinishRegistration(const std::string& sessionId, const FIDOSignResponse& proof, std::wstring& error);
 
 		bool BeginRemoval(
 			const std::wstring& sid,

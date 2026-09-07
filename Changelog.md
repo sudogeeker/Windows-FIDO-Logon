@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3
+
+- Authorize all security-key enrollment with the current local account password only; remove existing-key authorization and the additional post-registration assertion.
+- Explain missing account credentials in Manager security-key errors.
+
 ## 1.0.2
 
 - Block installation, upgrade, repair, and uninstall while MFA is enabled, including silent setup.

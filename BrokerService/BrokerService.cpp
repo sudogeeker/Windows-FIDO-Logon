@@ -523,36 +523,9 @@ bool BrokerService::Handle(const Caller& caller, json& request, json& response)
 		session.rpId = vault.rpId;
 		session.origin = origin;
 		session.challenge = RandomId(32);
-		if (account && !account->credentials.empty())
-		{
-			session.kind = SessionKind::RegistrationAuthorization;
-			const std::string id = PutSession(session);
-			json authorization = CreateAuthChallenge(session, *account);
-			authorization["sessionId"] = id;
-			response = { {"ok", true}, {"authorizationRequired", true}, {"authorization", authorization} };
-		}
-		else
-		{
-			session.kind = SessionKind::Registration;
-			const std::string id = PutSession(session);
-			json registration = CreateRegistrationChallenge(session, account ? &*account : nullptr);
-			registration["sessionId"] = id;
-			response = { {"ok", true}, {"authorizationRequired", false}, {"registration", registration} };
-		}
-		return true;
-	}
-
-	if (operation == "authorize_registration")
-	{
-		Session authorization;
-		std::string error;
-		if (!TakeSession(request.at("sessionId").get<std::string>(), caller, SessionKind::RegistrationAuthorization, authorization, error)) throw std::runtime_error(error);
-		if (!VerifySessionAssertion(authorization, request.at("assertion"), error)) throw std::runtime_error(error);
-		auto account = _store.FindAccount(authorization.targetSid);
-		authorization.kind = SessionKind::Registration;
-		authorization.challenge = RandomId(32);
-		const std::string id = PutSession(authorization);
-		json registration = CreateRegistrationChallenge(authorization, account ? &*account : nullptr);
+		session.kind = SessionKind::Registration;
+		const std::string id = PutSession(session);
+		json registration = CreateRegistrationChallenge(session, account ? &*account : nullptr);
 		registration["sessionId"] = id;
 		response = { {"ok", true}, {"registration", registration} };
 		return true;
@@ -581,33 +554,6 @@ bool BrokerService::Handle(const Caller& caller, json& request, json& response)
 		record.label = session.label;
 		record.createdAt = UtcNow();
 		record.signCount = registration.signCount;
-		session.kind = SessionKind::RegistrationProof;
-		session.challenge = RandomId(32);
-		session.pendingCredential = record;
-		const std::string proofId = PutSession(session);
-		localfido::AccountRecord proofAccount;
-		proofAccount.credentials.push_back(record);
-		json proof = CreateAuthChallenge(session, proofAccount);
-		proof["sessionId"] = proofId;
-		response = { {"ok", true}, {"proof", proof} };
-		return true;
-	}
-
-	if (operation == "finish_registration")
-	{
-		Session session;
-		std::string error;
-		if (!TakeSession(request.at("sessionId").get<std::string>(), caller, SessionKind::RegistrationProof, session, error)) throw std::runtime_error(error);
-		const FIDOSignResponse assertion = AssertionFromJson(request.at("assertion"));
-		uint32_t counter = 0;
-		if (!localfido::FidoVerifier::VerifyAssertion(session.pendingCredential, session.challenge, session.rpId, session.origin, assertion, counter, error))
-			throw std::runtime_error(error);
-		session.pendingCredential.signCount = counter;
-		localfido::Vault current;
-		if (!_store.LoadOrCreate(current)) throw std::runtime_error("credential vault unavailable");
-		for (const auto& account : current.accounts)
-			for (const auto& credential : account.credentials)
-				if (credential.credentialId == session.pendingCredential.credentialId) throw std::runtime_error("credential is already registered");
 		auto account = std::find_if(current.accounts.begin(), current.accounts.end(), [&](const localfido::AccountRecord& value) { return IsSameSid(value.sid, session.targetSid); });
 		if (account == current.accounts.end())
 		{
@@ -621,7 +567,8 @@ bool BrokerService::Handle(const Caller& caller, json& request, json& response)
 		{
 			account->username = session.username;
 		}
-		account->credentials.push_back(std::move(session.pendingCredential));
+		if (account->credentials.size() >= kMaximumCredentialsPerAccount) throw std::runtime_error("maximum registered security-key count reached");
+		account->credentials.push_back(std::move(record));
 		if (!_store.Save(current)) throw std::runtime_error("unable to save registered credential");
 		response = { {"ok", true}, {"credentialCount", account->credentials.size()} };
 		return true;
