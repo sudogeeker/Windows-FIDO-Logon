@@ -39,6 +39,7 @@ PCWSTR UiFieldLabel(FIELD_ID field) noexcept
 {
 	switch (field)
 	{
+	case FID_PROVIDER_LABEL: return UiText(UiTextId::ProviderLabel);
 	case FID_LARGE_TEXT: return UiText(UiTextId::Title);
 	case FID_SMALL_TEXT: return UiText(UiTextId::Subtitle);
 	case FID_USERNAME: return UiText(UiTextId::LocalUserLabel);

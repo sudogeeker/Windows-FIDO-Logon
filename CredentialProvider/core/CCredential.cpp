@@ -32,8 +32,14 @@ namespace
 	}
 }
 
-CCredential::CCredential(std::shared_ptr<Configuration> configuration) : _configuration(std::move(configuration))
+CCredential::CCredential(std::shared_ptr<Configuration> configuration) : _configuration(std::make_unique<Configuration>())
 {
+	// Copy only settings; secrets, mode and event ownership are per credential.
+	_configuration->debugLog = configuration->debugLog;
+	_configuration->noDefault = configuration->noDefault;
+	_configuration->isRemoteSession = configuration->isRemoteSession;
+	_configuration->provider.scenario = configuration->provider.scenario;
+	_configuration->provider.flags = configuration->provider.flags;
 	DllAddRef();
 }
 
@@ -68,7 +74,7 @@ HRESULT CCredential::ReplaceFieldString(PWSTR& destination, PCWSTR source)
 }
 
 HRESULT CCredential::Initialize(const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* descriptors,
-	const FIELD_STATE_PAIR* states, PWSTR username, PWSTR domain, PWSTR password)
+	const FIELD_STATE_PAIR* states, PCWSTR username, PCWSTR domain, PCWSTR password, PCWSTR userSid)
 {
 	if (!descriptors || !states) return E_INVALIDARG;
 	for (DWORD index = 0; index < FID_NUM_FIELDS; ++index)
@@ -82,30 +88,19 @@ HRESULT CCredential::Initialize(const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* desc
 	_configuration->credential.username = username ? username : L"";
 	_configuration->credential.domain = domain ? domain : L"";
 	_configuration->credential.password = password ? password : L"";
-	localfido::EnumerateLocalAccounts(_users);
-	if (!_configuration->credential.username.empty())
+	_userSid = userSid ? userSid : L"";
+	const std::pair<FIELD_ID, PCWSTR> values[] = {
+		{ FID_SMALL_TEXT, InitialPrompt() },
+		{ FID_USERNAME, _configuration->credential.username.c_str() },
+		{ FID_PASSWORD, _configuration->credential.password.c_str() },
+		{ FID_PROVIDER_LABEL, UiText(UiTextId::ProviderLabel) }
+	};
+	for (const auto& value : values)
 	{
-		for (DWORD index = 0; index < _users.size(); ++index)
-		{
-			if (_wcsicmp(_users[index].username.c_str(), _configuration->credential.username.c_str()) == 0)
-			{
-				_selectedUser = index;
-				break;
-			}
-		}
+		const HRESULT status = ReplaceFieldString(_strings[value.first], value.second);
+		if (FAILED(status)) return status;
 	}
-	else if (!_users.empty())
-	{
-		_selectedUser = 0;
-		_configuration->credential.username = _users.front().username;
-		_configuration->credential.domain = _users.front().computerName;
-	}
-	ReplaceFieldString(_strings[FID_LARGE_TEXT], UiText(UiTextId::Title));
-	ReplaceFieldString(_strings[FID_SMALL_TEXT], UiText(UiTextId::SelectUserAndPasswordPrompt));
-	ReplaceFieldString(_strings[FID_USERNAME], _configuration->credential.username.c_str());
-	ReplaceFieldString(_strings[FID_PASSWORD], _configuration->credential.password.c_str());
-	ReplaceFieldString(_strings[FID_SUBMIT_BUTTON], UiText(UiTextId::ContinueButton));
-	return S_OK;
+	return SetMode(Mode::USERNAME_PASSWORD);
 }
 
 HRESULT CCredential::Advise(ICredentialProviderCredentialEvents* events)
@@ -127,13 +122,31 @@ HRESULT CCredential::SetSelected(BOOL* autoLogon)
 {
 	if (!autoLogon) return E_INVALIDARG;
 	*autoLogon = FALSE;
-	return S_OK;
+	return _retired ? E_UNEXPECTED : S_OK;
 }
 
 HRESULT CCredential::SetDeselected()
 {
-	ResetMfa();
-	return S_OK;
+	return FullReset();
+}
+
+HRESULT CCredential::GetUserSid(PWSTR* sid)
+{
+	if (!sid) return E_INVALIDARG;
+	*sid = nullptr;
+	return _userSid.empty() ? S_FALSE : SHStrDupW(_userSid.c_str(), sid);
+}
+
+PCWSTR CCredential::InitialPrompt() const
+{
+	return UiText(_userSid.empty() ? UiTextId::SelectUserAndPasswordPrompt : UiTextId::EnterPasswordPrompt);
+}
+
+void CCredential::Retire()
+{
+	_retired = true;
+	FullReset();
+	UnAdvise();
 }
 
 HRESULT CCredential::GetFieldState(DWORD field, CREDENTIAL_PROVIDER_FIELD_STATE* state,
@@ -154,31 +167,18 @@ HRESULT CCredential::GetStringValue(DWORD field, PWSTR* value)
 HRESULT CCredential::GetBitmapValue(DWORD field, HBITMAP* bitmap)
 {
 	if (field != FID_LOGO || !bitmap) return E_INVALIDARG;
-	*bitmap = static_cast<HBITMAP>(LoadImageW(HINST_THISDLL, MAKEINTRESOURCEW(IDB_TILE_IMAGE), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR));
+	*bitmap = static_cast<HBITMAP>(LoadImageW(HINST_THISDLL, MAKEINTRESOURCEW(IDB_TILE_IMAGE), IMAGE_BITMAP, 72, 72, LR_DEFAULTCOLOR));
 	return *bitmap ? S_OK : HRESULT_FROM_WIN32(GetLastError());
 }
 
-HRESULT CCredential::GetComboBoxValueCount(DWORD field, DWORD* count, DWORD* selected)
+HRESULT CCredential::GetComboBoxValueCount(DWORD, DWORD*, DWORD*)
 {
-	if (!count || !selected) return E_INVALIDARG;
-	if (field == FID_USERNAME)
-	{
-		*count = static_cast<DWORD>(_users.size());
-		*selected = _selectedUser < _users.size() ? _selectedUser : 0;
-		return S_OK;
-	}
-	return E_INVALIDARG;
+	return E_NOTIMPL;
 }
 
-HRESULT CCredential::GetComboBoxValueAt(DWORD field, DWORD item, PWSTR* value)
+HRESULT CCredential::GetComboBoxValueAt(DWORD, DWORD, PWSTR*)
 {
-	if (!value) return E_INVALIDARG;
-	if (field == FID_USERNAME)
-	{
-		if (item >= _users.size()) return E_INVALIDARG;
-		return SHStrDupW(_users[item].username.c_str(), value);
-	}
-	return E_INVALIDARG;
+	return E_NOTIMPL;
 }
 
 HRESULT CCredential::GetSubmitButtonValue(DWORD field, DWORD* adjacentTo)
@@ -192,10 +192,15 @@ HRESULT CCredential::GetSubmitButtonValue(DWORD field, DWORD* adjacentTo)
 HRESULT CCredential::SetStringValue(DWORD field, PCWSTR value)
 {
 	if (field >= FID_NUM_FIELDS || !value) return E_INVALIDARG;
+	if (_retired) return E_UNEXPECTED;
 	std::wstring* target = nullptr;
 	switch (field)
 	{
-	case FID_USERNAME: target = &_configuration->credential.username; break;
+	case FID_USERNAME:
+		if (!_userSid.empty()) return E_ACCESSDENIED;
+		if (_configuration->credential.username != value) FullReset();
+		target = &_configuration->credential.username;
+		break;
 	case FID_PASSWORD: target = &_configuration->credential.password; break;
 	case FID_FIDO_PIN: target = &_configuration->credential.fidoPin; break;
 	case FID_NEW_PASS_1: target = &_configuration->credential.newPassword1; break;
@@ -208,26 +213,16 @@ HRESULT CCredential::SetStringValue(DWORD field, PCWSTR value)
 	return ReplaceFieldString(_strings[field], value);
 }
 
-HRESULT CCredential::SetComboBoxSelectedValue(DWORD field, DWORD selected)
+HRESULT CCredential::SetComboBoxSelectedValue(DWORD, DWORD)
 {
-	if (field == FID_USERNAME)
-	{
-		if (selected >= _users.size()) return E_INVALIDARG;
-		_selectedUser = selected;
-		_configuration->credential.username = _users[selected].username;
-		_configuration->credential.domain = _users[selected].computerName;
-		_sid = _users[selected].sidString;
-		ResetMfa();
-		return S_OK;
-	}
-	return E_INVALIDARG;
+	return E_NOTIMPL;
 }
 
 void CCredential::SetStatus(const std::wstring& text, IQueryContinueWithStatus* query)
 {
 	ReplaceFieldString(_strings[FID_SMALL_TEXT], text.c_str());
 	if (query) query->SetStatusMessage(text.c_str());
-	if (_events) _events->SetFieldString(this, FID_SMALL_TEXT, text.c_str());
+	if (_events) _events->SetFieldString(EventCredential(), FID_SMALL_TEXT, text.c_str());
 }
 
 HRESULT CCredential::SetMode(Mode mode)
@@ -238,16 +233,28 @@ HRESULT CCredential::SetMode(Mode mode)
 	for (DWORD index = 0; index < FID_NUM_FIELDS; ++index)
 	{
 		_states[index] = requested[index];
+		if (mode == Mode::USERNAME_PASSWORD && !_userSid.empty())
+		{
+			if (index == FID_USERNAME) _states[index] = { CPFS_HIDDEN, CPFIS_NONE };
+			if (index == FID_PASSWORD) _states[index].cpfis = CPFIS_FOCUSED;
+		}
 		if (_events)
 		{
-			_events->SetFieldState(this, index, _states[index].cpfs);
-			_events->SetFieldInteractiveState(this, index, _states[index].cpfis);
+			_events->SetFieldState(EventCredential(), index, _states[index].cpfs);
+			_events->SetFieldInteractiveState(EventCredential(), index, _states[index].cpfis);
 		}
 	}
 	const PCWSTR submitLabel = mode == Mode::FIDO ? UiText(UiTextId::VerifyKeyButton) :
 		(mode == Mode::CHANGE_PASSWORD ? UiText(UiTextId::ChangePasswordButton) : UiText(UiTextId::ContinueButton));
-	ReplaceFieldString(_strings[FID_SUBMIT_BUTTON], submitLabel);
-	if (_events) _events->SetFieldString(this, FID_SUBMIT_BUTTON, submitLabel);
+	const HRESULT status = ReplaceFieldString(_strings[FID_SUBMIT_BUTTON], submitLabel);
+	if (FAILED(status)) return status;
+	if (_events)
+	{
+		_events->SetFieldString(EventCredential(), FID_SUBMIT_BUTTON, submitLabel);
+		DWORD adjacentTo = FID_PASSWORD;
+		GetSubmitButtonValue(FID_SUBMIT_BUTTON, &adjacentTo);
+		_events->SetFieldSubmitButton(EventCredential(), FID_SUBMIT_BUTTON, adjacentTo);
+	}
 	return S_OK;
 }
 
@@ -269,22 +276,32 @@ void CCredential::ClearPin()
 	// Clear the existing buffer without allocating, then clear LogonUI's copy.
 	if (_strings[FID_FIDO_PIN])
 		SecureZeroMemory(_strings[FID_FIDO_PIN], (wcslen(_strings[FID_FIDO_PIN]) + 1) * sizeof(wchar_t));
-	if (_events) _events->SetFieldString(this, FID_FIDO_PIN, L"");
+	if (_events) _events->SetFieldString(EventCredential(), FID_FIDO_PIN, L"");
 }
 
 HRESULT CCredential::Disconnect()
 {
-	ClearPin();
-	return S_OK;
+	return FullReset();
 }
 
 HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 {
+	if (_retired) return E_UNEXPECTED;
+	auto cancelled = [&]()
+	{
+		if (query && query->QueryContinue() != S_OK)
+		{
+			FullReset();
+			return true;
+		}
+		return false;
+	};
+	if (cancelled()) return HRESULT_FROM_WIN32(ERROR_CANCELLED);
 	if (_configuration->mode == Mode::CHANGE_PASSWORD)
 		return _passwordChangeAuthorized ? S_OK : E_ACCESSDENIED;
 	if (_configuration->credential.username.empty() || _configuration->credential.password.empty())
 	{
-		SetStatus(UiText(UiTextId::SelectUserAndPasswordPrompt), query);
+		SetStatus(InitialPrompt(), query);
 		return E_INVALIDARG;
 	}
 
@@ -296,6 +313,12 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 		{
 			SetStatus(UiText(UiTextId::LocalAccountsOnly), query);
 			return HRESULT_FROM_WIN32(accountError);
+		}
+		if (!_userSid.empty() && _wcsicmp(sid.c_str(), _userSid.c_str()) != 0)
+		{
+			FullReset();
+			SetStatus(UiText(UiTextId::SignInFailed), query);
+			return E_ACCESSDENIED;
 		}
 		_configuration->credential.username = username;
 		_configuration->credential.domain = computer;
@@ -311,6 +334,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 			SetStatus(UiText(UiTextId::SignInVerificationUnavailable), query);
 			return E_ACCESSDENIED;
 		}
+		if (cancelled()) return HRESULT_FROM_WIN32(ERROR_CANCELLED);
 		if (!challenge.enforced)
 		{
 			if (localfido::LocalCredentialStore::IsSidEnforced(sid))
@@ -338,6 +362,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 			{
 				return !query || query->QueryContinue() == S_OK;
 			});
+			if (cancelled()) return HRESULT_FROM_WIN32(ERROR_CANCELLED);
 			if (selectionStatus != FIDO_OK)
 			{
 				ResetMfa();
@@ -375,6 +400,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 	FIDOSignResponse assertion;
 	const int fidoStatus = _devices[*_selectedDevice].Sign(_challenge->request, _challenge->origin, pin, assertion);
 	if (!pin.empty()) SecureZeroMemory(pin.data(), pin.size());
+	if (cancelled()) return HRESULT_FROM_WIN32(ERROR_CANCELLED);
 	if (fidoStatus != FIDO_OK)
 	{
 		ResetMfa();
@@ -390,6 +416,7 @@ HRESULT CCredential::Connect(IQueryContinueWithStatus* query)
 		SetStatus(UiText(UiTextId::KeyVerificationIncomplete), query);
 		return E_ACCESSDENIED;
 	}
+	if (cancelled()) return HRESULT_FROM_WIN32(ERROR_CANCELLED);
 	_mfaComplete = true;
 	_challenge.reset();
 	SetStatus(UiText(UiTextId::KeyVerified), query);
@@ -459,6 +486,7 @@ HRESULT CCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESP
 	*statusText = nullptr;
 	*statusIcon = CPSI_NONE;
 	ZeroMemory(serialization, sizeof(*serialization));
+	if (_retired) return E_UNEXPECTED;
 	if (_configuration->mode == Mode::CHANGE_PASSWORD)
 	{
 		const HRESULT status = PackPasswordChange(response, serialization);
@@ -529,10 +557,13 @@ HRESULT CCredential::FullReset()
 	ResetMfa();
 	_passwordChangeAuthorized = false;
 	_configuration->ClearSecrets();
-	ReplaceFieldString(_strings[FID_PASSWORD], L"");
-	ReplaceFieldString(_strings[FID_NEW_PASS_1], L"");
-	ReplaceFieldString(_strings[FID_NEW_PASS_2], L"");
+	for (const auto field : { FID_PASSWORD, FID_NEW_PASS_1, FID_NEW_PASS_2 })
+	{
+		if (_strings[field]) SecureZeroMemory(_strings[field], (wcslen(_strings[field]) + 1) * sizeof(wchar_t));
+		if (_events) _events->SetFieldString(EventCredential(), field, L"");
+	}
+	_sid.clear();
 	SetMode(Mode::USERNAME_PASSWORD);
-	SetStatus(UiText(UiTextId::SelectUserAndPasswordPrompt), nullptr);
+	SetStatus(InitialPrompt(), nullptr);
 	return S_OK;
 }

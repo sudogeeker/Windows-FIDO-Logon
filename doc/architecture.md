@@ -2,13 +2,21 @@
 
 ## Login path
 
-1. LogonUI lets the user choose a local account from an embedded list and enter its Windows password in the custom Credential Provider.
-2. The provider resolves the account through local SAM APIs and obtains its SID. UPN and non-local domain syntax are rejected.
+1. LogonUI supplies its user array to the V2 Credential Provider and owns the native user chooser, display names and account pictures. The provider offers one SID-bound credential for each supplied local identity. When Windows requests `CPAO_EMPTY_LOCAL`, an anonymous "Other user" credential accepts a local username and password. The provider does not force a default user or enumerate a separate account list.
+2. Each credential owns separate password, PIN, mode and authentication state. The provider resolves the account through local SAM APIs and obtains its SID; a named tile must match its bound SID. UPN and non-local domain syntax are rejected. Deselecting/disconnecting, changing an anonymous username, or replacing the user array clears secrets and authorization. Credentials retained from an old enumeration cannot authenticate or serialize.
 3. The provider asks the LocalSystem Broker for a one-use authentication challenge over the local Named Pipe.
 4. If the SID is not enforced, the provider immediately serializes the password for Windows LSA. The Credential Provider Filter hides this provider while enforcement is disabled so the system's native password provider remains the only local sign-in option.
 5. If enforced, the provider enumerates only CTAP2 ES256 USB HID devices, allows device selection, requests PIN/user verification and touch, and returns the assertion to the Broker. The first password submission transitions directly to this step without a second confirmation click.
 6. The Broker validates the session owner, 120-second expiry, challenge, HTTPS origin, RP ID hash, UP, UV, credential/SID ownership, ES256 signature, and signature counter.
 7. Only after success does the provider serialize the original password to LSA. A Windows password error invalidates the FIDO state and requires a new ceremony.
+
+## Native LogonUI presentation
+
+`ICredentialProviderSetUserArray` and `ICredentialProviderCredential2` associate this sign-in method with Windows user tiles. `IConnectableCredentialProviderCredential` remains available for the FIDO ceremony. A missing/empty user array does not trigger independent SAM enumeration or invent an anonymous tile. Connected identity providers are excluded. Account options and enumeration errors never publish a partial list.
+
+Windows renders custom/default user avatars and applies the default-picture policy. The provider does not read or replace `user.bmp`, `user.jpg`, account-picture registry entries, or per-profile image caches. Its embedded `tileimage.bmp` supplies a 72×72 **sign-in method icon**, marked `CPFG_CREDENTIAL_PROVIDER_LOGO`, with a separate localized `CPFG_CREDENTIAL_PROVIDER_LABEL`. It does not replace the user's portrait. Windows controls the exact appearance on each OS version.
+
+The duplicate product heading is hidden. Named tiles focus the password field; "Other user" focuses the username field. Status text is replaced as authentication progresses, and the submit arrow follows the password, key PIN or confirmation-password field. Provider filtering and Broker enforcement are unchanged; V2 integration does not re-enable alternate password/Hello methods when filtering is active. The legacy `no_default` setting no longer changes selection: this provider always lets LogonUI choose the user.
 
 ## Local state
 

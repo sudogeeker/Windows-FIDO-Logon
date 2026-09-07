@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-class CCredential : public IConnectableCredentialProviderCredential
+class CCredential : public IConnectableCredentialProviderCredential, public ICredentialProviderCredential2
 {
 public:
 	IFACEMETHODIMP_(ULONG) AddRef() noexcept override { return InterlockedIncrement(&_references); }
@@ -27,8 +27,9 @@ public:
 	IFACEMETHODIMP QueryInterface(REFIID riid, void** value) noexcept override
 	{
 		static const QITAB interfaces[] = {
-			QITABENT(CCredential, ICredentialProviderCredential),
+			QITABENTMULTI(CCredential, ICredentialProviderCredential, IConnectableCredentialProviderCredential),
 			QITABENT(CCredential, IConnectableCredentialProviderCredential),
+			QITABENT(CCredential, ICredentialProviderCredential2),
 			{ 0 }
 		};
 		return QISearch(this, interfaces, riid, value);
@@ -38,6 +39,7 @@ public:
 	IFACEMETHODIMP UnAdvise() override;
 	IFACEMETHODIMP SetSelected(BOOL* autoLogon) override;
 	IFACEMETHODIMP SetDeselected() override;
+	IFACEMETHODIMP GetUserSid(PWSTR* sid) override;
 	IFACEMETHODIMP GetFieldState(DWORD field, CREDENTIAL_PROVIDER_FIELD_STATE* state,
 		CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE* interactive) override;
 	IFACEMETHODIMP GetStringValue(DWORD field, PWSTR* value) override;
@@ -61,10 +63,14 @@ public:
 	explicit CCredential(std::shared_ptr<Configuration> configuration);
 	~CCredential();
 	HRESULT Initialize(const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* descriptors,
-		const FIELD_STATE_PAIR* states, PWSTR username, PWSTR domain, PWSTR password);
+		const FIELD_STATE_PAIR* states, PCWSTR username, PCWSTR domain, PCWSTR password,
+		PCWSTR userSid = nullptr);
 	HRESULT FullReset();
+	void Retire();
 
 private:
+	ICredentialProviderCredential* EventCredential() { return static_cast<IConnectableCredentialProviderCredential*>(this); }
+	PCWSTR InitialPrompt() const;
 	HRESULT SetMode(Mode mode);
 	void SetStatus(const std::wstring& text, IQueryContinueWithStatus* query);
 	void ResetMfa();
@@ -76,7 +82,7 @@ private:
 	static HRESULT ReplaceFieldString(PWSTR& destination, PCWSTR source);
 
 	LONG _references = 1;
-	std::shared_ptr<Configuration> _configuration;
+	std::unique_ptr<Configuration> _configuration;
 	CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR _descriptors[FID_NUM_FIELDS]{};
 	FIELD_STATE_PAIR _states[FID_NUM_FIELDS]{};
 	PWSTR _strings[FID_NUM_FIELDS]{};
@@ -84,10 +90,10 @@ private:
 	localfido::BrokerClient _broker;
 	std::optional<localfido::AuthenticationChallenge> _challenge;
 	std::vector<FIDODevice> _devices;
-	std::vector<localfido::LocalAccountInfo> _users;
 	std::optional<size_t> _selectedDevice;
-	DWORD _selectedUser = 0;
+	std::wstring _userSid;
 	std::wstring _sid;
+	bool _retired = false;
 	bool _mfaComplete = false;
 	bool _passwordChangeAuthorized = false;
 };

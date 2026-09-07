@@ -4,26 +4,27 @@
 #include "scenario.h"
 #include "Localization.h"
 
-#include <WtsApi32.h>
+#include <set>
 #include <new>
 
-#pragma comment(lib, "Wtsapi32.lib")
+
 
 CProvider::CProvider() : _configuration(std::make_shared<Configuration>())
 {
-	DllAddRef();
 	_configuration->Load();
+	DllAddRef();
 }
 
 CProvider::~CProvider()
 {
 	UnAdvise();
-	if (_credential) { _credential->Release(); _credential = nullptr; }
+	ClearCredentials();
 	DllRelease();
 }
 
 HRESULT CProvider::SetUsageScenario(CREDENTIAL_PROVIDER_USAGE_SCENARIO scenario, DWORD flags)
 {
+	ClearCredentials();
 	_configuration->provider.scenario = scenario;
 	_configuration->provider.flags = flags;
 	if (_configuration->isRemoteSession) return E_NOTIMPL;
@@ -48,7 +49,7 @@ HRESULT CProvider::UnAdvise()
 		_configuration->provider.events = nullptr;
 		_configuration->provider.context = 0;
 	}
-	if (_credential) _credential->FullReset();
+	for (auto& credential : _credentials) credential->FullReset();
 	return S_OK;
 }
 
@@ -80,51 +81,115 @@ HRESULT CProvider::GetFieldDescriptorAt(DWORD index, CREDENTIAL_PROVIDER_FIELD_D
 	return S_OK;
 }
 
+void CProvider::ClearCredentials()
+{
+	// LogonUI may still hold references to the old enumeration.
+	for (auto& credential : _credentials) credential->Retire();
+	_credentials.clear();
+	_credentialsReady = false;
+}
+
+HRESULT CProvider::SetUserArray(ICredentialProviderUserArray* users)
+{
+	ClearCredentials();
+	_users = users;
+	return S_OK;
+}
+
+HRESULT CProvider::CreateCredentials()
+{
+	if (_credentialsReady) return S_OK;
+	if (_configuration->isRemoteSession ||
+		(_configuration->provider.scenario != CPUS_LOGON &&
+		 _configuration->provider.scenario != CPUS_UNLOCK_WORKSTATION)) return E_NOTIMPL;
+	if (!_users) return S_OK;
+	try
+	{
+		// Commit only a complete enumeration. Never publish a partial user list.
+		std::vector<Microsoft::WRL::ComPtr<CCredential>> credentials;
+		auto append = [&](PCWSTR username, PCWSTR computer, PCWSTR sid) -> HRESULT
+		{
+			Microsoft::WRL::ComPtr<CCredential> credential;
+			credential.Attach(new CCredential(_configuration));
+			const HRESULT status = credential->Initialize(s_rgScenarioCredProvFieldDescriptors,
+				s_rgScenarioUsernamePassword, username, computer, nullptr, sid);
+			if (FAILED(status)) return status;
+			credentials.push_back(std::move(credential));
+			return S_OK;
+		};
+		DWORD count = 0;
+		HRESULT status = _users->GetCount(&count);
+		if (FAILED(status)) return status;
+		std::set<std::wstring> seen;
+		for (DWORD index = 0; index < count; ++index)
+		{
+			Microsoft::WRL::ComPtr<ICredentialProviderUser> user;
+			status = _users->GetAt(index, &user);
+			if (FAILED(status)) return status;
+			if (!user) return E_UNEXPECTED;
+			GUID providerId{};
+			status = user->GetProviderID(&providerId);
+			if (FAILED(status)) return status;
+			if (providerId != Identity_LocalUserProvider) continue;
+			PWSTR rawSid = nullptr;
+			status = user->GetSid(&rawSid);
+			std::unique_ptr<wchar_t, decltype(&CoTaskMemFree)> sid(rawSid, CoTaskMemFree);
+			if (FAILED(status)) return status;
+			if (!sid || !*sid) continue;
+			std::wstring username, computer;
+			if (!localfido::ResolveLocalSid(sid.get(), username, computer)) continue;
+			if (!seen.insert(sid.get()).second) continue;
+			status = append(username.c_str(), computer.c_str(), sid.get());
+			if (FAILED(status)) return status;
+		}
+		CREDENTIAL_PROVIDER_ACCOUNT_OPTIONS options = CPAO_NONE;
+		status = _users->GetAccountOptions(&options);
+		if (FAILED(status)) return status;
+		if (options & CPAO_EMPTY_LOCAL)
+		{
+			status = append(nullptr, nullptr, nullptr);
+			if (FAILED(status)) return status;
+		}
+		_credentials = std::move(credentials);
+		_credentialsReady = true;
+		return S_OK;
+	}
+	catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
+}
+
 HRESULT CProvider::GetCredentialCount(DWORD* count, DWORD* defaultIndex, BOOL* autoLogon)
 {
 	if (!count || !defaultIndex || !autoLogon) return E_INVALIDARG;
-	*count = 1;
-	*defaultIndex = _configuration->noDefault ? CREDENTIAL_PROVIDER_NO_DEFAULT : 0;
+	*count = 0;
+	*defaultIndex = CREDENTIAL_PROVIDER_NO_DEFAULT;
 	*autoLogon = FALSE;
+	const HRESULT status = CreateCredentials();
+	if (FAILED(status)) return status;
+	*count = static_cast<DWORD>(_credentials.size());
 	return S_OK;
 }
 
 HRESULT CProvider::GetCredentialAt(DWORD index, ICredentialProviderCredential** credential)
 {
-	if (!credential || index != 0) return E_INVALIDARG;
-	if (!_credential)
-	{
-		PWSTR sessionUser = nullptr;
-		PWSTR sessionDomain = nullptr;
-		if (_configuration->provider.scenario == CPUS_UNLOCK_WORKSTATION)
-		{
-			DWORD size = 0;
-			WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTSUserName, &sessionUser, &size);
-			WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTSDomainName, &sessionDomain, &size);
-		}
-		_credential = new (std::nothrow) CCredential(_configuration);
-		if (!_credential)
-		{
-			if (sessionUser) WTSFreeMemory(sessionUser);
-			if (sessionDomain) WTSFreeMemory(sessionDomain);
-			return E_OUTOFMEMORY;
-		}
-		const HRESULT status = _credential->Initialize(s_rgScenarioCredProvFieldDescriptors,
-			s_rgScenarioUsernamePassword, sessionUser, sessionDomain, nullptr);
-		if (sessionUser) WTSFreeMemory(sessionUser);
-		if (sessionDomain) WTSFreeMemory(sessionDomain);
-		if (FAILED(status)) { _credential->Release(); _credential = nullptr; return status; }
-	}
-	return _credential->QueryInterface(IID_IConnectableCredentialProviderCredential, reinterpret_cast<void**>(credential));
+	if (!credential) return E_INVALIDARG;
+	*credential = nullptr;
+	const HRESULT status = CreateCredentials();
+	if (FAILED(status)) return status;
+	if (index >= _credentials.size()) return E_INVALIDARG;
+	return _credentials[index]->QueryInterface(IID_ICredentialProviderCredential,
+		reinterpret_cast<void**>(credential));
 }
 
 HRESULT CSample_CreateInstance(REFIID riid, void** value)
 {
 	if (!value) return E_INVALIDARG;
 	*value = nullptr;
-	auto provider = new (std::nothrow) CProvider();
-	if (!provider) return E_OUTOFMEMORY;
-	const HRESULT status = provider->QueryInterface(riid, value);
-	provider->Release();
-	return status;
+	try
+	{
+		auto provider = new CProvider();
+		const HRESULT status = provider->QueryInterface(riid, value);
+		provider->Release();
+		return status;
+	}
+	catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
 }

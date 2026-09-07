@@ -40,6 +40,8 @@ enum class UiTextId
 	PasswordMustChange,
 	PasswordVerificationFailed,
 	SignInFailed,
+	EnterPasswordPrompt,
+	ProviderLabel,
 	Count,
 };
 

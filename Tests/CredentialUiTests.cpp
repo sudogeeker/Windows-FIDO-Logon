@@ -7,6 +7,8 @@
 #include <iostream>
 #include <stdexcept>
 
+void TestProviderEnumeration();
+
 HINSTANCE g_hinst = nullptr;
 void DllAddRef() noexcept {}
 void DllRelease() noexcept {}
@@ -22,6 +24,8 @@ namespace
 	{
 		std::wstring visiblePin;
 		std::wstring smallText;
+		DWORD submitAdjacentTo = FID_PASSWORD;
+		std::wstring visiblePassword;
 		ULONG references = 1;
 		HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** value) override
 		{
@@ -44,6 +48,7 @@ namespace
 		{
 			if (field == FID_FIDO_PIN) visiblePin = text ? text : L"";
 			if (field == FID_SMALL_TEXT) smallText = text ? text : L"";
+			if (field == FID_PASSWORD) visiblePassword = text ? text : L"";
 			return S_OK;
 		}
 		HRESULT STDMETHODCALLTYPE SetFieldCheckbox(ICredentialProviderCredential*, DWORD, BOOL, LPCWSTR) override { return S_OK; }
@@ -51,13 +56,15 @@ namespace
 		HRESULT STDMETHODCALLTYPE SetFieldComboBoxSelectedItem(ICredentialProviderCredential*, DWORD, DWORD) override { return S_OK; }
 		HRESULT STDMETHODCALLTYPE DeleteFieldComboBoxItem(ICredentialProviderCredential*, DWORD, DWORD) override { return S_OK; }
 		HRESULT STDMETHODCALLTYPE AppendFieldComboBoxItem(ICredentialProviderCredential*, DWORD, LPCWSTR) override { return S_OK; }
-		HRESULT STDMETHODCALLTYPE SetFieldSubmitButton(ICredentialProviderCredential*, DWORD, DWORD) override { return S_OK; }
+		HRESULT STDMETHODCALLTYPE SetFieldSubmitButton(ICredentialProviderCredential*, DWORD, DWORD adjacent) override
+		{ submitAdjacentTo = adjacent; return S_OK; }
 		HRESULT STDMETHODCALLTYPE OnCreatingWindow(HWND* owner) override { *owner = nullptr; return S_OK; }
 	};
 
 	struct QueryStatus : IQueryContinueWithStatus
 	{
 		std::wstring message;
+		bool cancelled = false;
 		ULONG references = 1;
 		HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** value) override
 		{
@@ -70,7 +77,7 @@ namespace
 		}
 		ULONG STDMETHODCALLTYPE AddRef() override { return ++references; }
 		ULONG STDMETHODCALLTYPE Release() override { return --references; }
-		HRESULT STDMETHODCALLTYPE QueryContinue() override { return S_OK; }
+		HRESULT STDMETHODCALLTYPE QueryContinue() override { return cancelled ? S_FALSE : S_OK; }
 		HRESULT STDMETHODCALLTYPE SetStatusMessage(LPCWSTR text) override { message = text; return S_OK; }
 	};
 
@@ -102,7 +109,7 @@ namespace
 			"submit descriptor has a non-localized fallback");
 		Require(wcscmp(UiFieldLabel(FID_SUBMIT_BUTTON), UiText(UiTextId::ContinueButton)) == 0,
 			"submit descriptor does not use the localized continue label");
-		Require(FID_NUM_FIELDS == 9, "LogonUI unexpectedly exposes a security-key selector");
+		Require(FID_NUM_FIELDS == 10, "LogonUI unexpectedly exposes a security-key selector");
 
 		auto configuration = std::make_shared<Configuration>();
 		CredentialEvents events;
@@ -111,6 +118,14 @@ namespace
 			s_rgScenarioUsernamePassword, nullptr, nullptr, nullptr)), "credential initialization failed");
 		Require(SUCCEEDED(credential.Advise(&events)), "credential advise failed");
 		CheckInitialTile(credential, events);
+		HBITMAP firstBitmap = nullptr, secondBitmap = nullptr;
+		Require(SUCCEEDED(credential.GetBitmapValue(FID_LOGO, &firstBitmap)) &&
+			SUCCEEDED(credential.GetBitmapValue(FID_LOGO, &secondBitmap)), "provider logo failed to load");
+		BITMAP info{};
+		Require(firstBitmap != secondBitmap && GetObjectW(firstBitmap, sizeof(info), &info) &&
+			info.bmWidth == 72 && info.bmHeight == 72, "logo has wrong dimensions or shared ownership");
+		DeleteObject(firstBitmap);
+		DeleteObject(secondBitmap);
 
 		QueryStatus query;
 		Require(credential.Connect(&query) == E_INVALIDARG, "empty password unexpectedly accepted");
@@ -122,7 +137,8 @@ namespace
 		{
 			events.visiblePin = L"123456";
 			Require(SUCCEEDED(credential.SetStringValue(FID_FIDO_PIN, events.visiblePin.c_str())), "PIN entry failed");
-			Require(!configuration->credential.fidoPin.empty(), "test did not populate PIN");
+			Require(!FieldText(credential, FID_FIDO_PIN).empty(), "test did not populate PIN");
+			Require(configuration->credential.fidoPin.empty(), "credential leaked PIN into shared settings");
 		};
 		auto checkPinCleared = [&]()
 		{
@@ -152,6 +168,8 @@ namespace
 			const bool matches = text && wcscmp(text, UiText(test.text)) == 0 && icon == test.icon;
 			CoTaskMemFree(text);
 			Require(matches, "wrong error text or icon for Windows status");
+			Require(events.submitAdjacentTo == static_cast<DWORD>(test.icon == CPSI_WARNING ? FID_NEW_PASS_2 : FID_PASSWORD),
+				"LogonUI was not notified of submit-arrow movement");
 			checkPinCleared();
 			Require(FieldText(credential, FID_SMALL_TEXT) == UiText(test.text) && events.smallText == UiText(test.text),
 				"result feedback did not replace the small-text content");
@@ -160,9 +178,18 @@ namespace
 		for (const auto reset : { &CCredential::Disconnect, &CCredential::SetDeselected, &CCredential::FullReset })
 		{
 			enterPin();
+			events.visiblePassword = L"secret";
+			credential.SetStringValue(FID_PASSWORD, events.visiblePassword.c_str());
 			Require(SUCCEEDED((credential.*reset)()), "reset callback failed");
 			checkPinCleared();
+			Require(events.visiblePassword.empty(), "LogonUI retained password after reset");
 		}
+		enterPin();
+		credential.SetStringValue(FID_PASSWORD, L"secret");
+		query.cancelled = true;
+		Require(credential.Connect(&query) == HRESULT_FROM_WIN32(ERROR_CANCELLED), "Connect ignored cancellation");
+		checkPinCleared();
+		Require(FieldText(credential, FID_PASSWORD).empty(), "cancelled Connect retained password");
 		enterPin();
 		PWSTR text = nullptr;
 		CREDENTIAL_PROVIDER_STATUS_ICON icon;
@@ -176,9 +203,11 @@ namespace
 
 int main()
 {
+	g_hinst = GetModuleHandleW(nullptr);
 	try
 	{
 		TestCredentialCallbacks();
+		TestProviderEnumeration();
 		std::cout << "Credential UI tests passed.\n";
 		return 0;
 	}

@@ -17,7 +17,7 @@ namespace i18n
 		L"Continue",
 		L"Verify security key",
 		L"Change password",
-		L"Select a user and enter the password.",
+		L"Enter your local username and password.",
 		L"Local accounts only.",
 		L"Unable to start sign-in verification.",
 		L"Unable to verify MFA policy.",
@@ -32,5 +32,7 @@ namespace i18n
 		L"Your Windows password must be changed.",
 		L"Password verification failed.",
 		L"Sign-in failed.",
+		L"Enter your Windows password.",
+		L"Password and security key",
 	};
 }

@@ -18,3 +18,4 @@
 
 #include <initguid.h>
 #include "guid.h"
+#include <credentialprovider.h>
